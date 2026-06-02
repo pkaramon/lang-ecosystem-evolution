@@ -1,5 +1,40 @@
 # Language Ecosystem Evolution
 
+## Opis projektu
+
+**5. Ewolucja ekosystemów języków programowania**
+
+### Cel projektu
+
+Celem projektu jest pokazanie zmian popularności języków programowania i technologii w czasie.
+
+### Zakres projektu
+
+Należy wykorzystać dane o aktywności w repozytoriach, aby porównać rozwój różnych języków, frameworków lub obszarów technologicznych.
+
+### Wymagania
+
+- przygotowanie danych o repozytoriach lub zdarzeniach,
+- analiza popularności języków w czasie,
+- porównanie aktywności społeczności,
+- przygotowanie interaktywnych wykresów trendów,
+- analiza zmian dominujących technologii,
+- interpretacja wyników.
+
+### Element związany z redukcją wymiaru
+
+Należy przygotować wektory aktywności języków lub repozytoriów i porównać wyniki UMAP, TriMAP lub PaCMAP.
+
+### Element rozszerzony
+
+Można dodać analizę migracji użytkowników między technologiami.
+
+### Przykładowe dane i narzędzia
+
+GH Archive, BigQuery, Python, Vega-Lite.
+
+---
+
 Monthly programming-language activity on GitHub (Jan 2016 – Jun 2025), built from GH Archive via BigQuery.
 
 ## Roadmap
