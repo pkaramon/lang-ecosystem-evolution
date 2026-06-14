@@ -1,14 +1,23 @@
 [project]
 name = "lang-ecosystem-evolution"
 version = "0.1.0"
-description = "Add your description here"
+description = "Interactive analysis of programming-language ecosystem evolution on GitHub"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "ipykernel>=7.2.0",
     "matplotlib>=3.10.9",
+    "nbconvert>=7.17.1",
     "nbformat>=5.10.4",
     "numpy>=2.4.6",
+    "pacmap>=0.9.1",
     "pandas>=3.0.3",
     "plotly>=6.7.0",
+    "scikit-learn>=1.9.0",
+    "trimap>=1.1.5",
+    "umap-learn>=0.5.12",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

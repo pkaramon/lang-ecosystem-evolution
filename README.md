@@ -41,9 +41,21 @@ Monthly programming-language activity on GitHub (Jan 2016 – Jun 2025), built f
 
 - **[Dataset docs](data/DATASET.md)** — what the data is, how it was sampled, pipeline, schema, and caveats
 - **[CSV](data/github_language_activity_monthly.csv)** — monthly activity by language (pushes, PRs, stars, forks, etc.)
-- **[Initial EDA notebook](notebooks/initial_data_quality_checks.ipynb)** — data quality checks and normalized Plotly charts (shares/ranks, not raw counts)
+- **[Interactive analysis notebook](notebooks/language_ecosystem_analysis.ipynb)** — popularity, community activity, concentration, and UMAP/TriMAP/PaCMAP comparisons
+- **[Initial EDA notebook](notebooks/initial_data_quality_checks.ipynb)** — retained as the original data sanity check
 
 ## Quick notes
 
 - One sampled day per month (the 15th) — compare **shares and trends**, not raw counts across months
 - Python 3.12+, managed with `uv` — see `pyproject.toml`
+
+## Run the analysis
+
+```bash
+uv sync
+uv run jupyter nbconvert --to notebook --execute --inplace \
+  notebooks/language_ecosystem_analysis.ipynb
+```
+
+Reusable data preparation, embedding, evaluation, and Plotly helpers live in
+`src/lang_ecosystem`.
