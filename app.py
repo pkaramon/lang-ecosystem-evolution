@@ -23,7 +23,16 @@ importlib.reload(lang_ecosystem.visuals)
 importlib.reload(lang_ecosystem.streamlit_helpers)
 
 from lang_ecosystem.streamlit_helpers import APP_CSS
-from app_pages import about, community, concentration, embeddings, popularity, sampling, winners
+from app_pages import (
+    about,
+    community,
+    concentration,
+    embeddings,
+    popularity,
+    presentation,
+    sampling,
+    winners,
+)
 
 st.set_page_config(
     page_title="Language Ecosystem Evolution",
@@ -35,7 +44,14 @@ st.set_page_config(
 st.markdown(APP_CSS, unsafe_allow_html=True)
 
 pages = [
-    st.Page(about.render, title="About the Data", icon=":material/info:", url_path="", default=True),
+    st.Page(
+        presentation.render,
+        title="Introduction",
+        icon=":material/slideshow:",
+        url_path="",
+        default=True,
+    ),
+    st.Page(about.render, title="About the Data", icon=":material/info:", url_path="about"),
     st.Page(sampling.render, title="Sampling & Comparability", icon=":material/science:", url_path="sampling"),
     st.Page(popularity.render, title="Popularity & Dominance", icon=":material/trending_up:", url_path="popularity"),
     st.Page(winners.render, title="Winners & Decliners", icon=":material/leaderboard:", url_path="winners"),
