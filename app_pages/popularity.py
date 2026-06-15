@@ -30,8 +30,8 @@ def render() -> None:
 
     st.markdown(
         "The stacked view answers a market-share question; the ranking explorer answers a "
-        "position question. Its controls change the ranking signal and the combined "
-        "period/scope view."
+        "position question. It follows the **union of the top 15 at the first and last period** "
+        "(switch signal and scope with the dropdowns above the chart)."
     )
     render_plotly(ranking_explorer_figure(prepared.activity, prepared.colors))
     render_plotly(dominance_turnover_figure(prepared.activity))

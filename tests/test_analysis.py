@@ -223,9 +223,10 @@ def test_period_aggregation_scope_ties_and_partial_year(prepared_data):
 def test_dynamic_rankings_and_turnover_respect_limits(prepared_data):
     _, _, shares, _ = prepared_data
     trajectories = ranking_trajectories(
-        shares, "Issue Comments", "Quarter", count=20
+        shares, "Issue Comments", "Quarter", endpoint_count=20
     )
-    assert trajectories["language"].nunique() == 20
+    assert trajectories["language"].nunique() <= 40
+    assert trajectories["language"].nunique() >= 20
     assert trajectories["granularity"].eq("Quarter").all()
     period_count = aggregate_period_shares(
         shares, "Issue Comments", "Quarter"
@@ -362,7 +363,11 @@ def test_interactive_figures_have_control_bands_and_expected_limits(prepared_dat
         pio.to_json(figure)
 
     assert ranking_figure.layout.yaxis.autorange == "reversed"
-    assert sum(trace.visible is True for trace in ranking_figure.data) == 12
+    visible_names = {
+        trace.name for trace in ranking_figure.data if trace.visible is True
+    }
+    assert len(visible_names) >= CHART_LIMITS["trajectory_endpoints"]
+    assert "" not in visible_names
     assert all(trace.opacity is None for trace in ranking_figure.data)
     assert sum(trace.visible is True for trace in turnover.data) == 1
     assert all(trace.opacity is None for trace in turnover.data)

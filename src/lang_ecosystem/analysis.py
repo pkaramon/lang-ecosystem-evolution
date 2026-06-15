@@ -313,16 +313,21 @@ def ranking_trajectories(
     score: str = "Composite",
     granularity: str = "Year",
     scope: str = "All labels",
-    count: int = 12,
+    endpoint_count: int = 15,
 ) -> pd.DataFrame:
-    """Return complete period ranks for a stable cohort of leading labels."""
+    """Return period ranks for languages in the start/end top-k union."""
     period = aggregate_period_shares(data, score, granularity, scope)
-    leaders = (
-        period.groupby("language", as_index=False)["share"]
-        .mean()
-        .sort_values(["share", "language"], ascending=[False, True])
-        .head(count)["language"]
-    )
+    first_period = period["period"].min()
+    last_period = period["period"].max()
+
+    def top_at(when: pd.Timestamp) -> list[str]:
+        return (
+            period.loc[period["period"] == when]
+            .nsmallest(endpoint_count, "rank")["language"]
+            .tolist()
+        )
+
+    leaders = list(dict.fromkeys(top_at(first_period) + top_at(last_period)))
     return period.loc[period["language"].isin(leaders)].copy()
 
 

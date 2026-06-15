@@ -10,6 +10,18 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
 
+# Editable src/ layout: reload library modules so Streamlit picks up changes
+# without a full server restart (file watching only covers app.py by default).
+import importlib
+
+import lang_ecosystem.analysis
+import lang_ecosystem.streamlit_helpers
+import lang_ecosystem.visuals
+
+importlib.reload(lang_ecosystem.analysis)
+importlib.reload(lang_ecosystem.visuals)
+importlib.reload(lang_ecosystem.streamlit_helpers)
+
 from lang_ecosystem.streamlit_helpers import APP_CSS
 from app_pages import about, community, concentration, embeddings, popularity, sampling, winners
 
@@ -32,4 +44,4 @@ pages = [
     st.Page(embeddings.render, title="Embeddings", icon=":material/hub:", url_path="embeddings"),
 ]
 
-st.navigation(pages).run()
+st.navigation(pages, position="sidebar", expanded=True).run()

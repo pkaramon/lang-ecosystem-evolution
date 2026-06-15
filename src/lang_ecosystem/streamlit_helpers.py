@@ -200,7 +200,7 @@ APP_CSS = """
     }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    [data-testid="stToolbar"] {visibility: hidden;}
+    [data-testid="stAppDeployButton"] {visibility: hidden;}
     header[data-testid="stHeader"] {
         background-color: #E5E1D9;
     }

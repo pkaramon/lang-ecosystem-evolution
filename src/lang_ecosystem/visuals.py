@@ -44,6 +44,7 @@ CONTROL_LABEL_OFFSET = 60
 
 CHART_LIMITS = {
     "trajectories": 12,
+    "trajectory_endpoints": 15,
     "explorers": 40,
     "heatmap_rows": 30,
     "embeddings": 150,
@@ -482,14 +483,25 @@ def stacked_area_figure(
     )
 
 
+def _empty_trajectory_item() -> dict:
+    return {
+        "x": [],
+        "y": [],
+        "name": "",
+        "text": [],
+        "customdata": np.empty((0, 3)),
+    }
+
+
 def _trajectory_payload(
     data: pd.DataFrame,
     score: str,
     granularity: str,
     scope: str,
-    count: int,
+    endpoint_count: int = CHART_LIMITS["trajectory_endpoints"],
+    pad_to: int | None = None,
 ) -> list[dict]:
-    frame = ranking_trajectories(data, score, granularity, scope, count)
+    frame = ranking_trajectories(data, score, granularity, scope, endpoint_count)
     leaders = (
         frame.groupby("language")["share"]
         .mean()
@@ -497,19 +509,7 @@ def _trajectory_payload(
         .index.tolist()
     )
     payload = []
-    for slot in range(count):
-        if slot >= len(leaders):
-            payload.append(
-                {
-                    "x": [],
-                    "y": [],
-                    "name": "",
-                    "text": [],
-                    "customdata": np.empty((0, 3)),
-                }
-            )
-            continue
-        language = leaders[slot]
+    for language in leaders:
         subset = frame.loc[frame["language"] == language]
         endpoint_labels = np.full(len(subset), "", dtype=object)
         if len(endpoint_labels):
@@ -529,6 +529,8 @@ def _trajectory_payload(
                 ),
             }
         )
+    if pad_to is not None:
+        payload.extend(_empty_trajectory_item() for _ in range(pad_to - len(payload)))
     return payload
 
 
@@ -538,12 +540,14 @@ def ranking_trajectory_figure(
     score: str = "Composite",
     granularity: str = "Year",
     scope: str = "All labels",
-    count: int = CHART_LIMITS["trajectories"],
+    endpoint_count: int = CHART_LIMITS["trajectory_endpoints"],
 ) -> go.Figure:
     """Render one complete rank-history view for app-level controls."""
-    payload = _trajectory_payload(data, score, granularity, scope, count)
+    payload = _trajectory_payload(data, score, granularity, scope, endpoint_count)
     figure = go.Figure()
     for item in payload:
+        if not item["name"]:
+            continue
         figure.add_trace(
             go.Scatter(
                 x=item["x"],
@@ -573,7 +577,7 @@ def ranking_trajectory_figure(
     apply_editorial_theme(
         figure,
         "Ranking trajectories across signals and timeframes",
-        "A stable leader cohort is followed through every period; rank 1 is highest.",
+        "Top-15 at the first and last period, combined; rank 1 is highest.",
         height=720,
     )
     figure.update_layout(margin_r=150)
@@ -583,7 +587,7 @@ def ranking_trajectory_figure(
 def ranking_explorer_figure(
     data: pd.DataFrame,
     colors: Mapping[str, str],
-    count: int = CHART_LIMITS["trajectories"],
+    endpoint_count: int = CHART_LIMITS["trajectory_endpoints"],
 ) -> go.Figure:
     """Explore complete leader histories by signal and period/scope view."""
     scores = list(SCORE_COLUMNS)
@@ -594,17 +598,24 @@ def ranking_explorer_figure(
         for granularity in granularities
         for scope in scopes
     ]
-    payloads = {
+    raw_payloads = {
         (score, granularity, scope): _trajectory_payload(
-            data, score, granularity, scope, count
+            data, score, granularity, scope, endpoint_count
         )
         for score in scores
         for granularity in granularities
         for scope in scopes
     }
+    max_len = max(len(payload) for payload in raw_payloads.values())
+    payloads = {
+        key: payload
+        + [_empty_trajectory_item()] * (max_len - len(payload))
+        for key, payload in raw_payloads.items()
+    }
     figure = go.Figure()
     trace_keys = []
     initial_score = "Composite"
+    default_view = ("Year", "Programming languages")
     for granularity, scope in views:
         payload = payloads[(initial_score, granularity, scope)]
         for item in payload:
@@ -614,7 +625,7 @@ def ranking_explorer_figure(
                     x=item["x"],
                     y=item["y"],
                     mode="lines+markers+text",
-                    visible=granularity == "Year" and scope == "All labels",
+                    visible=granularity == default_view[0] and scope == default_view[1],
                     name=language,
                     text=item["text"],
                     textposition="middle right",
@@ -684,7 +695,7 @@ def ranking_explorer_figure(
         view_buttons,
         0.31,
         "Period and label scope",
-        active=views.index(("Year", "All labels")),
+        active=views.index(("Year", "Programming languages")),
     )
     figure.update_layout(
         updatemenus=[metric_menu, view_menu],
@@ -698,7 +709,7 @@ def ranking_explorer_figure(
     apply_editorial_theme(
         figure,
         "Ranking trajectories across signals and timeframes",
-        "A stable top-12 cohort is followed through every period; rank 1 is highest.",
+        "Top-15 at the first and last period, combined; rank 1 is highest.",
         height=720,
         control_band=True,
     )
