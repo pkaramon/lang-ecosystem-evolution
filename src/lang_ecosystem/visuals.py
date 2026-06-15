@@ -58,7 +58,7 @@ ROLLING_WINDOWS = {
 
 FIXED_LANGUAGE_COLORS = {
     "JavaScript": "#E0A800",
-    "Python": "#3776AB",
+    "Python": "#2E7D4A",
     "TypeScript": "#3178C6",
     "Java": "#D95F45",
     "Go": "#00A7C7",
