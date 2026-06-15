@@ -160,6 +160,10 @@ def test_projection_method_figure_adds_semantic_group_legend(prepared_data):
     legend_names = [trace.name for trace in figure.data if trace.showlegend]
     assert "Document / typesetting" in legend_names
     assert "General-purpose" in legend_names
+    projection_traces = [trace for trace in figure.data if not trace.showlegend]
+    legend_traces = [trace for trace in figure.data if trace.showlegend]
+    assert all(trace.marker.opacity == 1.0 for trace in projection_traces)
+    assert all(trace.marker.opacity == 1.0 for trace in legend_traces)
 
 
 def test_reducers_return_one_finite_point_per_language(prepared_data):

@@ -53,6 +53,9 @@ CHART_LIMITS = {
     "embedding_highlights": 30,
 }
 
+# Log-spaced share ticks from 0.1% to 20%; avoids crowded auto ticks near 1%.
+MEAN_SHARE_LOG_TICKS = (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2)
+
 LANGUAGE_GROUP_COLORS = {
     "Document / typesetting": "#E65100",
     "Markup & templates": "#00C853",
@@ -1653,6 +1656,16 @@ def signal_agreement_figure(data: pd.DataFrame) -> go.Figure:
     )
 
 
+def _configure_mean_share_log_axis(figure: go.Figure) -> None:
+    figure.update_xaxes(
+        title="Mean activity share",
+        type="log",
+        tickmode="array",
+        tickvals=list(MEAN_SHARE_LOG_TICKS),
+        tickformat=".2%",
+    )
+
+
 def _stability_payload(
     data: pd.DataFrame,
     colors: Mapping[str, str],
@@ -1722,7 +1735,7 @@ def rank_stability_view_figure(
             showlegend=False,
         )
     )
-    figure.update_xaxes(title="Mean activity share", type="log", tickformat=".2%")
+    _configure_mean_share_log_axis(figure)
     figure.update_yaxes(title="Rank volatility (standard deviation)")
     return apply_editorial_theme(
         figure,
@@ -1831,7 +1844,7 @@ def rank_stability_figure(
         updatemenus=[score_menu, view_menu],
         annotations=[score_label, view_label],
     )
-    figure.update_xaxes(title="Mean activity share", type="log", tickformat=".2%")
+    _configure_mean_share_log_axis(figure)
     figure.update_yaxes(title="Rank volatility (standard deviation)")
     return apply_editorial_theme(
         figure,
@@ -2059,7 +2072,6 @@ def projection_method_figure(
         marker_colors = [
             colors.get(language, NEUTRAL) for language in subset["language"]
         ]
-        tail_opacity = 1.0 if use_semantic_groups else 0.8
         tail_size = 8 if use_semantic_groups else 6
         if use_semantic_groups:
             marker_line_color = np.where(is_highlight, PANEL, marker_colors)
@@ -2067,6 +2079,15 @@ def projection_method_figure(
         else:
             marker_line_color = PANEL
             marker_line_width = 0.7
+        marker = {
+            "color": marker_colors,
+            "size": np.where(is_highlight, 11, tail_size),
+            "opacity": 1.0 if use_semantic_groups else np.where(is_highlight, 0.9, 0.8),
+            "line": {
+                "color": marker_line_color,
+                "width": marker_line_width,
+            },
+        }
         figure.add_trace(
             go.Scatter(
                 x=subset["x"],
@@ -2076,15 +2097,7 @@ def projection_method_figure(
                 textposition="top center",
                 textfont={"size": 10, "color": TEXT},
                 visible=profile_index == 0,
-                marker={
-                    "color": marker_colors,
-                    "size": np.where(is_highlight, 11, tail_size),
-                    "opacity": np.where(is_highlight, 0.9, tail_opacity),
-                    "line": {
-                        "color": marker_line_color,
-                        "width": marker_line_width,
-                    },
-                },
+                marker=marker,
                 customdata=np.column_stack(
                     [
                         subset["language"],

@@ -7,7 +7,6 @@ from lang_ecosystem.streamlit_helpers import (
     get_embeddings,
     get_prepared_data,
     render_plotly,
-    render_profile_vector_columns,
 )
 from lang_ecosystem.visuals import embedding_quality_figure, projection_method_figure
 
@@ -30,7 +29,6 @@ def render() -> None:
 
     st.subheader("Activity vectors")
     st.dataframe(data.vector_summary, use_container_width=True)
-    render_profile_vector_columns(data.profile_vectors)
 
     st.subheader("Embedding quality scores")
     formatted_scores = data.embedding_scores.copy()

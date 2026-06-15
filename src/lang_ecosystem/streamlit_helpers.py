@@ -126,14 +126,6 @@ def dataset_summary_metrics(activity: pd.DataFrame, top_150_count: int) -> pd.Da
     )
 
 
-def format_vector_columns(matrix: pd.DataFrame) -> list[str]:
-    """Return human-readable labels for every feature column in a profile matrix."""
-    return [
-        f"{metric} / {date:%Y-%m}"
-        for metric, date in matrix.columns
-    ]
-
-
 def vector_summary_table(profile_vectors: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
     """Summarize embedding input vectors with an explicit metrics list per profile."""
     return pd.DataFrame(
@@ -147,21 +139,6 @@ def vector_summary_table(profile_vectors: Mapping[str, pd.DataFrame]) -> pd.Data
         },
         index=profile_vectors.keys(),
     )
-
-
-def render_profile_vector_columns(profile_vectors: Mapping[str, pd.DataFrame]) -> None:
-    with st.expander("All feature columns", expanded=False):
-        st.markdown(
-            "Each feature is one metric's within-month share for one calendar month. "
-            "Columns are ordered metric-major: all months for the first metric, then "
-            "all months for the next metric, and so on."
-        )
-        for profile, matrix in profile_vectors.items():
-            st.markdown(f"**{profile}** — {matrix.shape[1]} features")
-            st.dataframe(
-                pd.DataFrame({"Feature": format_vector_columns(matrix)}),
-                use_container_width=True,
-            )
 
 
 def render_plotly(fig) -> None:
