@@ -70,7 +70,7 @@ def get_prepared_data() -> PreparedData:
     top_150 = ranking.head(CHART_LIMITS["embeddings"])["language"].tolist()
     top_40 = top_150[: CHART_LIMITS["explorers"]]
     top_12 = top_150[: CHART_LIMITS["trajectories"]]
-    colors = language_color_map(top_150)
+    colors = language_color_map(top_150, use_semantic_groups=True)
     colors["Other"] = "#D7D1C8"
 
     return PreparedData(
@@ -173,30 +173,74 @@ def render_dataset_markdown() -> None:
 
 
 def render_metrics_glossary() -> None:
+    metric_list = ", ".join(metric.replace("_", " ") for metric in METRICS)
     with st.expander("How we score activity", expanded=False):
         st.markdown(
-            """
-**Within-month share** — For each metric (pushes, pull requests, issues,
-issue comments, stars, forks, creates, contributors, active repos), a
-language's count divided by the total for that metric in the same month.
-Always compare shares, not raw counts — the dataset samples only the 15th
-of each month.
-
-**Composite share** — Equal-weight average of all nine metric shares. This
-is the default popularity score used in most charts.
-
-**Contribution share** — Average of five contribution signals: pushes, pull
-requests, issues, issue comments, and creates.
-
-**Community share** — Average of four reach signals: stars, forks,
-contributors, and active repos.
-
-**Trailing 3 / 12 months** — Rolling mean of monthly shares per language,
-used to smooth single-day sampling noise.
-
-**Top-k dominance** — Sum of composite shares held by the top 1, 5, or 10
-languages in a month.
-"""
+            "GitHub samples language activity on the 15th of each month. "
+            "Charts score languages by **within-month share**, not raw counts."
+        )
+        st.markdown("#### Within-month share")
+        st.markdown(
+            f"For each of the nine metrics ({metric_list}), language *i* gets "
+            "the fraction of that metric's total in month *t*."
+        )
+        st.latex(
+            r"s_{i,m,t} = \frac{c_{i,m,t}}{\sum_{j=1}^{N} c_{j,m,t}}"
+        )
+        st.markdown("#### Composite share")
+        st.markdown(
+            "Equal-weight average of all nine metric shares. "
+            "This is the default popularity score in most charts."
+        )
+        st.latex(
+            r"s_{i,t}^{\mathrm{composite}} = \frac{1}{9}\sum_{m=1}^{9} s_{i,m,t}"
+        )
+        st.markdown("#### Contribution share")
+        st.markdown(
+            "Average of five contribution signals: pushes, pull requests, "
+            "issues, issue comments, and creates."
+        )
+        st.latex(
+            r"s_{i,t}^{\mathrm{contrib}} = \frac{1}{5}\sum_{m \in \mathcal{C}} "
+            r"s_{i,m,t}"
+        )
+        st.markdown(
+            r"$\mathcal{C} = \{\mathrm{pushes}, \mathrm{pull\_requests}, "
+            r"\mathrm{issues}, \mathrm{issue\_comments}, \mathrm{creates}\}$."
+        )
+        st.markdown("#### Community share")
+        st.markdown(
+            "Average of four reach signals: stars, forks, contributors, "
+            "and active repos."
+        )
+        st.latex(
+            r"s_{i,t}^{\mathrm{community}} = \frac{1}{4}\sum_{m \in \mathcal{R}} "
+            r"s_{i,m,t}"
+        )
+        st.markdown(
+            r"$\mathcal{R} = \{\mathrm{stars}, \mathrm{forks}, "
+            r"\mathrm{contributors}, \mathrm{active\_repos}\}$."
+        )
+        st.markdown("#### Trailing 3 / 12 months")
+        st.markdown(
+            "Rolling mean of monthly shares per language, smoothing "
+            "single-day sampling noise. Charts use trailing 3 months by default."
+        )
+        st.latex(
+            r"\bar{s}_{i,t}^{(W)} = \frac{1}{W}\sum_{k=0}^{W-1} s_{i,t-k}"
+        )
+        st.markdown("*W* is 3 or 12 depending on the view.")
+        st.markdown("#### Top-k dominance")
+        st.markdown(
+            "Share of composite activity held by the top 1, 5, or 10 "
+            "languages in month *t*."
+        )
+        st.latex(
+            r"D_t^{(k)} = \sum_{i=1}^{k} s_{(i),t}^{\mathrm{composite}}"
+        )
+        st.markdown(
+            r"$s_{(i),t}^{\mathrm{composite}}$ are composite shares sorted "
+            "descending within month *t*."
         )
 
 
@@ -205,25 +249,34 @@ def render_diversity_metrics_explainer() -> None:
         "What do inverse HHI and exponential Shannon mean?", expanded=False
     ):
         st.markdown(
-            """
-**HHI (Herfindahl–Hirschman Index)** — Sum of squared shares; measures
-concentration. One dominant language gives HHI near 1; many equal languages
-give HHI near 1/N.
-
-**Inverse HHI (1/HHI)** — Reframes concentration as an *effective number
-of equal-sized ecosystems*. If 10 languages each held 10% share, inverse
-HHI is about 10. Higher means more diverse.
-
-**Exponential Shannon (exp(entropy))** — Shannon entropy is
-−Σ p·log(p); exponentiating gives another effective-count measure with the
-same equal-split intuition. It is typically slightly higher than inverse
-HHI for the same distribution.
-
-**How the chart uses them** — Each month, language shares within the
-selected scope are renormalized to probabilities, both effective counts are
-computed, then a trailing 3-month average is applied (matching the
-chart's default smoothing).
-"""
+            "Both lines estimate *effective ecosystem count*: how many equal "
+            "shares would reproduce this month's spread? Higher means a broader "
+            "field. Each month, activity shares become probabilities $p_i$ with "
+            r"$\sum_{i=1}^{N} p_i = 1$."
+        )
+        st.latex(r"\mathrm{HHI} = \sum_{i=1}^{N} p_i^2")
+        st.markdown(
+            "The Herfindahl-Hirschman index is 1 for a monopoly and $1/N$ when "
+            "every label is equal. Inverse HHI turns that concentration back into "
+            "an effective count."
+        )
+        st.latex(
+            r"\mathrm{Inverse\ HHI} = \mathrm{HHI}^{-1} "
+            r"= \frac{1}{\sum_{i=1}^{N} p_i^2}"
+        )
+        st.markdown(
+            "Exponential Shannon applies the same idea via entropy instead of "
+            "squaring and is usually a bit higher."
+        )
+        st.latex(r"H = -\sum_{i=1}^{N} p_i \ln p_i")
+        st.latex(r"N_{\mathrm{eff}} = e^{H}")
+        st.latex(
+            r"\mathrm{Exponential\ Shannon} = \exp\left(-\sum_{i=1}^{N} "
+            r"p_i \ln p_i\right)"
+        )
+        st.markdown(
+            "The chart computes both each month from the selected score shares, "
+            "then smooths with a trailing 3-month average (dropdown default)."
         )
 
 

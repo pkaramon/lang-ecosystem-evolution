@@ -120,6 +120,80 @@ TECHNOLOGY_LABELS = {
     "Vue",
 }
 
+LANGUAGE_GROUPS = {
+    "Document / typesetting": {
+        "Groff",
+        "PostScript",
+        "Rich Text Format",
+        "Roff",
+        "TeX",
+        "reStructuredText",
+    },
+    "Markup & templates": {
+        "Astro",
+        "Blade",
+        "EJS",
+        "FreeMarker",
+        "Gherkin",
+        "Handlebars",
+        "Jinja",
+        "Liquid",
+        "MDX",
+        "Markdown",
+        "Mustache",
+        "Nunjucks",
+        "Pug",
+        "Smarty",
+        "Svelte",
+        "Twig",
+    },
+    "ML / scientific": {
+        "Coq",
+        "Fortran",
+        "GAP",
+        "Lean",
+        "M",
+        "MATLAB",
+        "Mathematica",
+        "Modelica",
+        "PureScript",
+        "Reason",
+    },
+    "Infra / config": {
+        "ApacheConf",
+        "Bicep",
+        "BitBake",
+        "CMake",
+        "DIGITAL Command Language",
+        "Jsonnet",
+        "Nextflow",
+        "Nix",
+        "Open Policy Agent",
+        "Puppet",
+        "SaltStack",
+        "Starlark",
+        "YAML",
+    },
+    "Web styling": {
+        "Less",
+        "Sass",
+        "Stylus",
+    },
+}
+
+DEFAULT_LANGUAGE_GROUP = "General-purpose"
+
+_LANGUAGE_TO_GROUP = {
+    language: group
+    for group, languages in LANGUAGE_GROUPS.items()
+    for language in languages
+}
+
+
+def language_group(language: str) -> str:
+    """Return a functional grouping used for embedding long-tail colors."""
+    return _LANGUAGE_TO_GROUP.get(language, DEFAULT_LANGUAGE_GROUP)
+
 
 def _validate_columns(data: pd.DataFrame) -> None:
     required = {"language", "year", "month", *METRICS}

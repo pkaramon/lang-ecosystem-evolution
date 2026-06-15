@@ -33,6 +33,7 @@ from lang_ecosystem.analysis import (
 from lang_ecosystem.visuals import (
     CHART_LIMITS,
     FIXED_LANGUAGE_COLORS,
+    LANGUAGE_GROUP_COLORS,
     NEUTRAL,
     activity_specialization_figure,
     category_composition_figure,
@@ -121,6 +122,44 @@ def test_fixed_top_30_colors_and_neutral_long_tail(prepared_data):
     assert colors_a["JavaScript"] == FIXED_LANGUAGE_COLORS["JavaScript"]
     assert len(set(colors_a[language] for language in languages[:30])) == 30
     assert all(colors_a[language] == NEUTRAL for language in languages[30:])
+
+
+def test_semantic_group_colors_for_embedding_tail(prepared_data):
+    _, _, _, ranking = prepared_data
+    languages = ranking.head(150)["language"].tolist()
+    colors = language_color_map(languages, use_semantic_groups=True)
+
+    assert colors["JavaScript"] == FIXED_LANGUAGE_COLORS["JavaScript"]
+    assert colors["TeX"] == LANGUAGE_GROUP_COLORS["Document / typesetting"]
+    assert colors["Roff"] == LANGUAGE_GROUP_COLORS["Document / typesetting"]
+    assert colors["Smarty"] == LANGUAGE_GROUP_COLORS["Markup & templates"]
+    assert colors["MATLAB"] == LANGUAGE_GROUP_COLORS["ML / scientific"]
+    assert colors["CMake"] == LANGUAGE_GROUP_COLORS["Infra / config"]
+    assert colors["Less"] == LANGUAGE_GROUP_COLORS["Web styling"]
+    assert colors["Elixir"] == LANGUAGE_GROUP_COLORS["General-purpose"]
+
+
+def test_projection_method_figure_adds_semantic_group_legend(prepared_data):
+    _, _, shares, ranking = prepared_data
+    languages = ranking.head(150)["language"].tolist()
+    vectors = build_profile_vectors(shares, languages)
+    embeddings = run_all_embeddings(
+        vectors,
+        ranking,
+        seed=42,
+        trimap_iterations=40,
+        pacmap_iterations=(12, 12, 24),
+    )
+    colors = language_color_map(languages, use_semantic_groups=True)
+    figure = projection_method_figure(
+        embeddings,
+        colors,
+        "UMAP",
+        use_semantic_groups=True,
+    )
+    legend_names = [trace.name for trace in figure.data if trace.showlegend]
+    assert "Document / typesetting" in legend_names
+    assert "General-purpose" in legend_names
 
 
 def test_reducers_return_one_finite_point_per_language(prepared_data):

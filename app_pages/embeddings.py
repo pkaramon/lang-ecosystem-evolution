@@ -18,7 +18,9 @@ def render() -> None:
         "Each point represents **one language across the whole 114-month history**. "
         "Vectors concatenate chronological monthly-share time series per metric. "
         "Coordinates and axis directions have no intrinsic meaning — interpret "
-        "neighborhoods and relative structure, not absolute positions."
+        "neighborhoods and relative structure, not absolute positions. "
+        "The top 30 labels keep individual colors; the long tail is tinted by "
+        "functional group (document tools, templates, ML/scientific, infra/config, etc.)."
     )
 
     with st.spinner("Computing embeddings (UMAP, TriMAP, PaCMAP)…"):
@@ -39,7 +41,12 @@ def render() -> None:
     for method in ("UMAP", "TriMAP", "PaCMAP"):
         st.subheader(method)
         render_plotly(
-            projection_method_figure(data.embeddings, prepared.colors, method)
+            projection_method_figure(
+                data.embeddings,
+                prepared.colors,
+                method,
+                use_semantic_groups=True,
+            )
         )
 
     render_plotly(embedding_quality_figure(data.embedding_scores))

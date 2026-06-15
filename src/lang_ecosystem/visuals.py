@@ -21,6 +21,7 @@ from .analysis import (
     ecosystem_diversity,
     ecosystem_momentum,
     filter_label_scope,
+    language_group,
     rank_stability,
     ranking_trajectories,
     signal_rank_agreement,
@@ -49,6 +50,16 @@ CHART_LIMITS = {
     "heatmap_rows": 30,
     "embeddings": 150,
     "embedding_labels": 25,
+    "embedding_highlights": 30,
+}
+
+LANGUAGE_GROUP_COLORS = {
+    "Document / typesetting": "#E65100",
+    "Markup & templates": "#00C853",
+    "ML / scientific": "#1565C0",
+    "Infra / config": "#8E24AA",
+    "Web styling": "#D81B60",
+    "General-purpose": "#757575",
 }
 
 ROLLING_WINDOWS = {
@@ -107,20 +118,58 @@ FALLBACK_COLORS = [
 
 
 def language_color_map(
-    ranked_languages: Sequence[str], highlight_count: int = 30
+    ranked_languages: Sequence[str],
+    highlight_count: int = CHART_LIMITS["embedding_highlights"],
+    *,
+    use_semantic_groups: bool = False,
 ) -> dict[str, str]:
-    """Return stable colors for leaders and a shared neutral for the long tail."""
+    """Return stable colors for leaders and neutral or grouped colors for the tail."""
     used = set(FIXED_LANGUAGE_COLORS.values())
     fallback = (color for color in FALLBACK_COLORS if color not in used)
     colors = {}
     for index, language in enumerate(ranked_languages):
         if index >= highlight_count:
-            colors[language] = NEUTRAL
+            if use_semantic_groups:
+                colors[language] = LANGUAGE_GROUP_COLORS[language_group(language)]
+            else:
+                colors[language] = NEUTRAL
         elif language in FIXED_LANGUAGE_COLORS:
             colors[language] = FIXED_LANGUAGE_COLORS[language]
         else:
             colors[language] = next(fallback, "#8D6E63")
     return colors
+
+
+def _add_semantic_group_legend(
+    figure: go.Figure,
+    languages: Sequence[str],
+    ranks: Sequence[float],
+    highlight_count: int = CHART_LIMITS["embedding_highlights"],
+) -> None:
+    """Add legend swatches for semantic groups used by the embedding long tail."""
+    groups_used = {
+        language_group(language)
+        for language, rank in zip(languages, ranks, strict=True)
+        if rank > highlight_count
+    }
+    for group in LANGUAGE_GROUP_COLORS:
+        if group not in groups_used:
+            continue
+        figure.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode="markers",
+                marker={
+                    "size": 10,
+                    "color": LANGUAGE_GROUP_COLORS[group],
+                    "opacity": 1.0,
+                    "line": {"width": 0},
+                },
+                name=group,
+                showlegend=True,
+            )
+        )
 
 
 def _title_html(title: str, subtitle: str | None = None) -> str:
@@ -1991,11 +2040,14 @@ def projection_method_figure(
     colors: Mapping[str, str],
     method: str,
     label_count: int = CHART_LIMITS["embedding_labels"],
+    *,
+    use_semantic_groups: bool = False,
 ) -> go.Figure:
     """Render one full-width projection method with an activity-profile selector."""
     if method not in {"UMAP", "TriMAP", "PaCMAP"}:
         raise ValueError(f"Unknown projection method: {method}")
     profiles = list(embeddings["profile"].drop_duplicates())
+    highlight_count = CHART_LIMITS["embedding_highlights"]
     figure = go.Figure()
     for profile_index, profile in enumerate(profiles):
         subset = embeddings.loc[
@@ -2003,6 +2055,18 @@ def projection_method_figure(
             & (embeddings["method"] == method)
         ].sort_values("rank")
         labels = np.where(subset["rank"] <= label_count, subset["language"], "")
+        is_highlight = subset["rank"] <= highlight_count
+        marker_colors = [
+            colors.get(language, NEUTRAL) for language in subset["language"]
+        ]
+        tail_opacity = 1.0 if use_semantic_groups else 0.8
+        tail_size = 8 if use_semantic_groups else 6
+        if use_semantic_groups:
+            marker_line_color = np.where(is_highlight, PANEL, marker_colors)
+            marker_line_width = np.where(is_highlight, 0.7, 0.0)
+        else:
+            marker_line_color = PANEL
+            marker_line_width = 0.7
         figure.add_trace(
             go.Scatter(
                 x=subset["x"],
@@ -2013,13 +2077,13 @@ def projection_method_figure(
                 textfont={"size": 10, "color": TEXT},
                 visible=profile_index == 0,
                 marker={
-                    "color": [
-                        colors.get(language, NEUTRAL)
-                        for language in subset["language"]
-                    ],
-                    "size": np.where(subset["rank"] <= 30, 11, 6),
-                    "opacity": np.where(subset["rank"] <= 30, 0.9, 0.42),
-                    "line": {"color": PANEL, "width": 0.7},
+                    "color": marker_colors,
+                    "size": np.where(is_highlight, 11, tail_size),
+                    "opacity": np.where(is_highlight, 0.9, tail_opacity),
+                    "line": {
+                        "color": marker_line_color,
+                        "width": marker_line_width,
+                    },
                 },
                 customdata=np.column_stack(
                     [
@@ -2027,15 +2091,28 @@ def projection_method_figure(
                         subset["rank"],
                         subset["category"],
                         subset["mean_composite_share"],
+                        [
+                            language_group(language)
+                            for language in subset["language"]
+                        ],
                     ]
                 ),
                 hovertemplate=(
                     "<b>%{customdata[0]}</b><br>Overall rank %{customdata[1]:.0f}"
                     "<br>%{customdata[2]}"
+                    "<br>Group: %{customdata[4]}"
                     "<br>Mean composite share %{customdata[3]:.2%}<extra></extra>"
                 ),
                 showlegend=False,
             )
+        )
+    if use_semantic_groups:
+        first_subset = embeddings.loc[embeddings["method"] == method].sort_values("rank")
+        _add_semantic_group_legend(
+            figure,
+            first_subset["language"],
+            first_subset["rank"],
+            highlight_count=highlight_count,
         )
     buttons = []
     for profile_index, profile in enumerate(profiles):
@@ -2059,8 +2136,14 @@ def projection_method_figure(
     return apply_editorial_theme(
         figure,
         f"{method}: activity-profile similarity",
-        "Each point is one label represented by its complete normalized time series.",
+        (
+            "Each point is one label represented by its complete normalized time series. "
+            "Top-ranked labels keep individual colors; the long tail is tinted by functional group."
+            if use_semantic_groups
+            else "Each point is one label represented by its complete normalized time series."
+        ),
         height=760,
+        legend_title="Groups" if use_semantic_groups else None,
         control_band=True,
     )
 
