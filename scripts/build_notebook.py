@@ -37,14 +37,16 @@ cells = [
         """
         ## 1. Setup and visual language
 
-        The analysis uses one fixed color per leading language. The 30 most prominent
-        labels retain vivid colors across every chart; the rest of the top 100 are muted
-        in dimensionality-reduction views to keep the structure readable.
+        The analysis uses one fixed color per leading language. Dense trajectories show
+        20 labels, community explorers show 40, and dimensionality-reduction views use
+        150. The 30 most prominent labels retain vivid colors; the longer tail is muted
+        to keep the structure readable.
         """
     ),
     code(
         """
         from pathlib import Path
+        import importlib
         import sys
         import warnings
 
@@ -60,12 +62,20 @@ cells = [
             ROOT = ROOT.parent
         sys.path.insert(0, str(ROOT / "src"))
 
+        # Jupyter keeps imported modules alive across reruns. Reload this local package so
+        # regenerated notebooks always use the current source tree.
+        importlib.invalidate_caches()
+        for module_name in list(sys.modules):
+            if module_name == "lang_ecosystem" or module_name.startswith(
+                "lang_ecosystem."
+            ):
+                del sys.modules[module_name]
+
         from lang_ecosystem.analysis import (
             ACTIVITY_PROFILES,
-            COMMUNITY_METRICS,
             METRICS,
             add_monthly_shares,
-            add_smoothed_shares,
+            add_trailing_shares,
             build_profile_vectors,
             complete_month_grid,
             evaluate_embeddings,
@@ -74,19 +84,20 @@ cells = [
             run_all_embeddings,
         )
         from lang_ecosystem.visuals import (
+            CHART_LIMITS,
+            activity_specialization_figure,
             animated_activity_bubble,
-            annual_bump_figure,
-            community_profile_heatmap,
             composite_trend_figure,
             concentration_figure,
-            embedding_comparison_figure,
+            dominance_turnover_figure,
+            ecosystem_momentum_figure,
             embedding_quality_figure,
             language_color_map,
             leaders_decliners_figure,
             metric_trend_figure,
-            profile_embedding_figure,
+            projection_method_figure,
+            ranking_explorer_figure,
             sampling_bias_figure,
-            share_rank_heatmap,
             stacked_area_figure,
         )
 
@@ -125,7 +136,7 @@ cells = [
         raw = load_activity_data(DATA_PATH)
         dense = complete_month_grid(raw)
         activity = add_monthly_shares(dense)
-        activity = add_smoothed_shares(activity, window=3, center=True)
+        activity = add_trailing_shares(activity, windows=(3, 12))
         ranking = rank_languages(activity)
         activity = activity.merge(
             ranking[["language", "rank", "mean_composite_share"]],
@@ -134,11 +145,10 @@ cells = [
             validate="many_to_one",
         )
 
-        top_100 = ranking.head(100)["language"].tolist()
-        top_30 = top_100[:30]
-        top_15 = top_100[:15]
-        top_10 = top_100[:10]
-        colors = language_color_map(top_100)
+        top_150 = ranking.head(CHART_LIMITS["embeddings"])["language"].tolist()
+        top_40 = top_150[: CHART_LIMITS["explorers"]]
+        top_20 = top_150[: CHART_LIMITS["trajectories"]]
+        colors = language_color_map(top_150)
         colors["Other"] = "#D7D1C8"
 
         summary = pd.DataFrame(
@@ -149,7 +159,7 @@ cells = [
                     activity["language"].nunique(),
                     len(activity),
                     len(METRICS),
-                    len(top_100),
+                    len(top_150),
                 ]
             },
             index=[
@@ -174,24 +184,23 @@ cells = [
         share_columns = [f"{metric}_share" for metric in METRICS]
         share_check = activity.groupby("date")[share_columns].sum()
         max_error = (share_check - 1).abs().to_numpy().max()
-        category_counts = ranking.head(100)["category"].value_counts()
+        category_counts = ranking.head(CHART_LIMITS["embeddings"])["category"].value_counts()
 
         display(
             Markdown(
                 f"""
                 **Validation.** Every metric's monthly language shares sum to one
-                (maximum floating-point error: `{max_error:.2e}`). The top-100 set contains
+                (maximum floating-point error: `{max_error:.2e}`). The top-150 set contains
                 **{category_counts.get('Programming language', 0)} programming-language
                 labels** and **{category_counts.get('Technology / artifact', 0)}
                 technology/artifact labels**.
 
-                Set `LABEL_SCOPE = "Programming language"` in downstream experiments to
-                filter the ranked list; this report defaults to `"All labels"` because the
-                project brief covers both languages and technologies.
+                Key explorers provide explicit scope controls for all labels, programming
+                languages only, and technology/artifact labels only. They default to all
+                labels because the project brief covers both languages and technologies.
                 """
             )
         )
-        LABEL_SCOPE = "All labels"
         '''
     ),
     markdown(
@@ -206,7 +215,7 @@ cells = [
     ),
     code(
         """
-        sampling_bias_figure(activity, top_100[:5], colors).show(config=PLOT_CONFIG)
+        sampling_bias_figure(activity, top_20[:5], colors).show(config=PLOT_CONFIG)
         """
     ),
     markdown(
@@ -219,34 +228,35 @@ cells = [
     ),
     code(
         """
-        composite_trend_figure(activity, top_10, colors).show(config=PLOT_CONFIG)
+        composite_trend_figure(activity, top_20, colors).show(config=PLOT_CONFIG)
         """
     ),
     code(
         """
-        metric_trend_figure(activity, top_15, colors).show(config=PLOT_CONFIG)
+        metric_trend_figure(activity, top_20, colors).show(config=PLOT_CONFIG)
         """
     ),
     code(
         """
-        stacked_area_figure(activity, top_10, colors).show(config=PLOT_CONFIG)
+        stacked_area_figure(activity, top_20, colors).show(config=PLOT_CONFIG)
         """
     ),
     markdown(
         """
-        The stacked view answers a market-share question; the bump chart answers a ranking
-        question. A language can climb in rank even while its own share is nearly flat if
-        the ecosystems above it contract.
+        The stacked view answers a market-share question; the ranking explorer answers a
+        position question. Its controls independently change the activity signal, period,
+        and label scope. Dynamic leaders are recalculated for each selected signal, so
+        metric specialists are not excluded by the composite ranking.
         """
     ),
     code(
         """
-        annual_bump_figure(activity, top_15, colors).show(config=PLOT_CONFIG)
+        ranking_explorer_figure(activity, colors).show(config=PLOT_CONFIG)
         """
     ),
     code(
         """
-        share_rank_heatmap(activity, top_30).show(config=PLOT_CONFIG)
+        dominance_turnover_figure(activity).show(config=PLOT_CONFIG)
         """
     ),
     markdown(
@@ -299,26 +309,32 @@ cells = [
         Contribution activity and reach/community activity are related but not identical.
         Stars and forks can indicate attention and adoption; contributors and active
         repositories indicate participation breadth. The animation exposes movement over
-        time, while the heatmap summarizes each leader's average profile.
+        time, the specialization heatmap shows which signals define each ecosystem, and
+        the momentum view separates current prominence from recent change.
         """
     ),
     code(
         """
-        animated_activity_bubble(activity, top_30, colors).show(config=PLOT_CONFIG)
+        animated_activity_bubble(activity, top_40, colors).show(config=PLOT_CONFIG)
         """
     ),
     code(
         """
-        community_profile_heatmap(activity, top_100[:20]).show(config=PLOT_CONFIG)
+        activity_specialization_figure(activity).show(config=PLOT_CONFIG)
+        """
+    ),
+    code(
+        """
+        ecosystem_momentum_figure(activity, colors).show(config=PLOT_CONFIG)
         """
     ),
     markdown(
         """
         ## 7. Is the ecosystem concentrating?
 
-        Top-k shares show how much of the composite activity belongs to the leaders. The
-        inverse HHI translates the complete share distribution into an "effective number"
-        of equally sized language ecosystems.
+        Top-k shares show directly how much of the composite activity belongs to the
+        leading one, five, and ten ecosystems. This avoids translating the distribution
+        into a less interpretable synthetic count.
         """
     ),
     code(
@@ -344,7 +360,7 @@ cells = [
     ),
     code(
         """
-        profile_vectors = build_profile_vectors(activity, top_100)
+        profile_vectors = build_profile_vectors(activity, top_150)
         vector_summary = pd.DataFrame(
             {
                 "Languages": [matrix.shape[0] for matrix in profile_vectors.values()],
@@ -402,14 +418,23 @@ cells = [
     ),
     code(
         """
-        embedding_comparison_figure(
-            embeddings, colors, profile="All activity"
+        projection_method_figure(
+            embeddings, colors, "UMAP"
         ).show(config=PLOT_CONFIG)
         """
     ),
     code(
         """
-        profile_embedding_figure(embeddings, colors).show(config=PLOT_CONFIG)
+        projection_method_figure(
+            embeddings, colors, "TriMAP"
+        ).show(config=PLOT_CONFIG)
+        """
+    ),
+    code(
+        """
+        projection_method_figure(
+            embeddings, colors, "PaCMAP"
+        ).show(config=PLOT_CONFIG)
         """
     ),
     code(
@@ -449,10 +474,15 @@ cells = [
 
         **What the analysis supports**
 
+        - Data preparation creates a complete language-by-month grid and comparable
+          within-month shares from the sampled repository events.
         - Popularity is multidimensional: code contribution, discussion, attention,
           participation breadth, and repository breadth do not always move together.
-        - Long-run shares and ranks reveal ecosystem transitions more reliably than any
-          single sampled count.
+        - Monthly, quarterly, and annual shares and ranks reveal changes in dominant
+          languages and technology/artifact labels more reliably than a sampled raw count.
+        - Turnover, momentum, and specialization distinguish leadership changes from
+          community behavior: a prominent ecosystem can decline while a smaller one
+          over-indexes strongly on discussion, contribution, or adoption signals.
         - The three projections are complementary. UMAP emphasizes local neighborhoods,
           while TriMAP and PaCMAP optimize different combinations of local and global
           structure; the quality diagnostics make those trade-offs visible.
@@ -465,6 +495,8 @@ cells = [
         - Only repositories present in the PR-derived language map are included.
         - Each repository has one dominant language, so multi-language repositories are
           simplified.
+        - User migration between technologies cannot be inferred because the dataset has
+          aggregate language-month counts, not actor-level transition histories.
         - Distances in a 2D embedding are approximations. Clusters should be checked against
           the original time series and embedding-quality scores before interpretation.
 

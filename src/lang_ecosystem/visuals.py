@@ -10,7 +10,18 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from .analysis import COMMUNITY_METRICS, EVENT_METRICS, METRICS, monthly_concentration
+from .analysis import (
+    EVENT_METRICS,
+    LABEL_SCOPES,
+    METRICS,
+    SCORE_COLUMNS,
+    activity_specialization,
+    dominance_turnover,
+    ecosystem_momentum,
+    filter_label_scope,
+    ranking_trajectories,
+    top_k_dominance,
+)
 
 BACKGROUND = "#F7F4EE"
 PANEL = "#FFFCF7"
@@ -20,6 +31,13 @@ GRID = "#DED8CF"
 NEUTRAL = "#B8B2A9"
 POSITIVE = "#16856B"
 NEGATIVE = "#C44E52"
+
+CHART_LIMITS = {
+    "trajectories": 20,
+    "explorers": 40,
+    "embeddings": 150,
+    "embedding_labels": 25,
+}
 
 FIXED_LANGUAGE_COLORS = {
     "JavaScript": "#E0A800",
@@ -102,15 +120,25 @@ def apply_editorial_theme(
     subtitle: str | None = None,
     height: int = 580,
     legend_title: str | None = None,
+    control_band: bool = False,
 ) -> go.Figure:
     """Apply the shared notebook/Streamlit-ready visual theme."""
     figure.update_layout(
-        title={"text": _title_html(title, subtitle), "x": 0.015, "xanchor": "left"},
+        title={
+            "text": _title_html(title, subtitle),
+            "x": 0.015,
+            "xanchor": "left",
+            "xref": "container",
+            "y": 0.955,
+            "yanchor": "top",
+            "yref": "container",
+            "pad": {"t": 0},
+        },
         height=height,
         paper_bgcolor=BACKGROUND,
         plot_bgcolor=PANEL,
         font={"family": "Inter, Arial, sans-serif", "color": TEXT, "size": 12},
-        margin={"l": 65, "r": 35, "t": 105, "b": 55},
+        margin={"l": 65, "r": 35, "t": 175 if control_band else 110, "b": 55},
         hoverlabel={"bgcolor": PANEL, "font_color": TEXT},
         legend={
             "title": {"text": legend_title or ""},
@@ -122,6 +150,36 @@ def apply_editorial_theme(
     figure.update_xaxes(gridcolor=GRID, zeroline=False, showline=False)
     figure.update_yaxes(gridcolor=GRID, zeroline=False, showline=False)
     return figure
+
+
+def _menu(
+    buttons: list[dict],
+    x: float,
+    label: str,
+    active: int = 0,
+) -> tuple[dict, dict]:
+    menu = {
+        "buttons": buttons,
+        "direction": "down",
+        "x": x,
+        "xanchor": "left",
+        "y": 1.16,
+        "yanchor": "top",
+        "active": active,
+        "showactive": True,
+        "pad": {"r": 12, "t": 4},
+    }
+    annotation = {
+        "text": label,
+        "x": x,
+        "xref": "paper",
+        "xanchor": "left",
+        "y": 1.205,
+        "yref": "paper",
+        "showarrow": False,
+        "font": {"size": 11, "color": MUTED},
+    }
+    return menu, annotation
 
 
 def sampling_bias_figure(
@@ -200,81 +258,54 @@ def composite_trend_figure(
     languages: Sequence[str],
     colors: Mapping[str, str],
 ) -> go.Figure:
-    """Interactive composite popularity trends with a smoothing toggle."""
+    """Interactive composite popularity trends with trailing-window controls."""
     figure = go.Figure()
+    subsets = {}
     for language in languages:
         subset = data.loc[data["language"] == language]
-        for column, visible, suffix in [
-            ("composite_share_smooth", True, "3-month mean"),
-            ("composite_share", False, "monthly"),
-        ]:
-            figure.add_trace(
-                go.Scatter(
-                    x=subset["date"],
-                    y=subset[column],
-                    mode="lines",
-                    visible=visible,
-                    name=language,
-                    legendgroup=language,
-                    showlegend=visible,
-                    line={
-                        "color": colors[language],
-                        "width": 2.7 if visible else 1.7,
-                    },
-                    customdata=np.column_stack(
-                        [
-                            subset["rank"] if "rank" in subset else np.zeros(len(subset)),
-                            subset["category"],
-                        ]
-                    ),
-                    hovertemplate=(
-                        f"<b>{language}</b> ({suffix})<br>%{{x|%B %Y}}"
-                        "<br>Composite share: %{y:.2%}"
-                        "<br>%{customdata[1]}<extra></extra>"
-                    ),
-                )
+        subsets[language] = subset
+        figure.add_trace(
+            go.Scatter(
+                x=subset["date"],
+                y=subset["composite_share_3m"],
+                mode="lines",
+                name=language,
+                line={"color": colors[language], "width": 2.2},
+                customdata=np.column_stack([subset["category"]]),
+                hovertemplate=(
+                    f"<b>{language}</b><br>%{{x|%B %Y}}"
+                    "<br>Composite share: %{y:.2%}"
+                    "<br>%{customdata[0]}<extra></extra>"
+                ),
             )
+        )
 
-    count = len(languages)
-    figure.update_layout(
-        updatemenus=[
+    smoothing = [
+        ("Monthly", "composite_share"),
+        ("Trailing 3 months", "composite_share_3m"),
+        ("Trailing 12 months", "composite_share_12m"),
+    ]
+    buttons = []
+    for label, column in smoothing:
+        buttons.append(
             {
-                "type": "buttons",
-                "direction": "right",
-                "x": 0.01,
-                "y": 1.13,
-                "buttons": [
+                "label": label,
+                "method": "update",
+                "args": [
+                    {"y": [subsets[language][column] for language in languages]},
                     {
-                        "label": "3-month mean",
-                        "method": "update",
-                        "args": [
-                            {
-                                "visible": [
-                                    index % 2 == 0 for index in range(count * 2)
-                                ],
-                                "showlegend": [
-                                    index % 2 == 0 for index in range(count * 2)
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "label": "Monthly",
-                        "method": "update",
-                        "args": [
-                            {
-                                "visible": [
-                                    index % 2 == 1 for index in range(count * 2)
-                                ],
-                                "showlegend": [
-                                    index % 2 == 1 for index in range(count * 2)
-                                ],
-                            }
-                        ],
+                        "yaxis": {
+                            "title": "Equal-weight activity share",
+                            "tickformat": ".1%",
+                        }
                     },
                 ],
             }
-        ]
+        )
+    menu, annotation = _menu(buttons, 0.01, "Smoothing", active=1)
+    figure.update_layout(
+        updatemenus=[menu],
+        annotations=[annotation],
     )
     figure.update_yaxes(title="Equal-weight activity share", tickformat=".1%")
     figure.update_xaxes(title=None)
@@ -284,6 +315,7 @@ def composite_trend_figure(
         "Composite share averages nine within-month activity proportions.",
         height=620,
         legend_title="Language",
+        control_band=True,
     )
 
 
@@ -292,16 +324,17 @@ def metric_trend_figure(
     languages: Sequence[str],
     colors: Mapping[str, str],
 ) -> go.Figure:
-    """Per-metric trend explorer controlled by a Plotly dropdown."""
+    """Per-metric trend explorer with independent metric and smoothing controls."""
     figure = go.Figure()
+    trace_frames = []
     for metric_index, metric in enumerate(METRICS):
-        column = f"{metric}_share_smooth"
         for language in languages:
             subset = data.loc[data["language"] == language]
+            trace_frames.append((metric, language, subset))
             figure.add_trace(
                 go.Scatter(
                     x=subset["date"],
-                    y=subset[column],
+                    y=subset[f"{metric}_share_3m"],
                     mode="lines",
                     visible=metric_index == 0,
                     name=language,
@@ -317,12 +350,12 @@ def metric_trend_figure(
             )
 
     traces_per_metric = len(languages)
-    buttons = []
+    metric_buttons = []
     for metric_index, metric in enumerate(METRICS):
         visible = [False] * (len(METRICS) * traces_per_metric)
         start = metric_index * traces_per_metric
         visible[start : start + traces_per_metric] = [True] * traces_per_metric
-        buttons.append(
+        metric_buttons.append(
             {
                 "label": metric.replace("_", " ").title(),
                 "method": "update",
@@ -332,24 +365,42 @@ def metric_trend_figure(
                 ],
             }
         )
-    figure.update_layout(
-        updatemenus=[
+    smoothing_buttons = []
+    for label, suffix in [
+        ("Monthly", ""),
+        ("Trailing 3 months", "_3m"),
+        ("Trailing 12 months", "_12m"),
+    ]:
+        smoothing_buttons.append(
             {
-                "buttons": buttons,
-                "direction": "down",
-                "x": 0.01,
-                "y": 1.14,
-                "showactive": True,
+                "label": label,
+                "method": "update",
+                "args": [
+                    {
+                        "y": [
+                            subset[f"{metric}_share{suffix}"]
+                            for metric, _, subset in trace_frames
+                        ]
+                    }
+                ],
             }
-        ]
+        )
+    metric_menu, metric_label = _menu(metric_buttons, 0.01, "Activity signal")
+    smooth_menu, smooth_label = _menu(
+        smoothing_buttons, 0.29, "Smoothing", active=1
+    )
+    figure.update_layout(
+        updatemenus=[metric_menu, smooth_menu],
+        annotations=[metric_label, smooth_label],
     )
     figure.update_yaxes(title="Monthly share", tickformat=".1%")
     return apply_editorial_theme(
         figure,
         "Explore each activity signal",
-        "Three-month means; choose a metric from the dropdown.",
+        "Choose an activity signal and a trailing smoothing window.",
         height=610,
         legend_title="Language",
+        control_band=True,
     )
 
 
@@ -401,125 +452,292 @@ def stacked_area_figure(
     )
 
 
-def annual_bump_figure(
+def _trajectory_payload(
     data: pd.DataFrame,
-    languages: Sequence[str],
-    colors: Mapping[str, str],
-) -> go.Figure:
-    """Annual rank trajectories for the leading languages."""
-    annual = (
-        data.groupby(["language", "year"], as_index=False)["composite_share"]
+    score: str,
+    granularity: str,
+    scope: str,
+    count: int,
+) -> list[dict]:
+    frame = ranking_trajectories(data, score, granularity, scope, count)
+    leaders = (
+        frame.groupby("language")["share"]
         .mean()
-        .assign(
-            annual_rank=lambda frame: frame.groupby("year")[
-                "composite_share"
-            ].rank(method="min", ascending=False)
-        )
+        .sort_values(ascending=False)
+        .index.tolist()
     )
-    selected_max_rank = int(
-        annual.loc[annual["language"].isin(languages), "annual_rank"].max()
-    )
-    figure = go.Figure()
-    for language in languages:
-        subset = annual.loc[annual["language"] == language]
-        figure.add_trace(
-            go.Scatter(
-                x=subset["year"],
-                y=subset["annual_rank"],
-                mode="lines+markers",
-                name=language,
-                line={"color": colors[language], "width": 2.4},
-                marker={"size": 7},
-                hovertemplate=(
-                    f"<b>{language}</b><br>%{{x}} rank: %{{y:.0f}}"
-                    "<br>Share: %{customdata:.2%}<extra></extra>"
-                ),
-                customdata=subset["composite_share"],
+    payload = []
+    for slot in range(count):
+        if slot >= len(leaders):
+            payload.append(
+                {"x": [], "y": [], "name": "", "customdata": np.empty((0, 2))}
             )
-        )
-    figure.update_yaxes(
-        title="Annual rank",
-        autorange="reversed",
-        dtick=1 if selected_max_rank <= 16 else 2,
-        range=[selected_max_rank + 0.7, 0.5],
-    )
-    figure.update_xaxes(title=None, dtick=1)
-    return apply_editorial_theme(
-        figure,
-        "Annual ranking trajectories",
-        "Rank 1 is the highest average composite share in that calendar year.",
-        height=650,
-        legend_title="Language",
-    )
-
-
-def share_rank_heatmap(
-    data: pd.DataFrame,
-    languages: Sequence[str],
-) -> go.Figure:
-    """Monthly heatmap with a share/rank dropdown."""
-    subset = data.loc[data["language"].isin(languages)].copy()
-    subset["monthly_rank"] = data.groupby("date")["composite_share"].rank(
-        method="min", ascending=False
-    )
-    share = (
-        subset.pivot(index="language", columns="date", values="composite_share")
-        .reindex(languages)
-        * 100
-    )
-    rank = subset.pivot(
-        index="language", columns="date", values="monthly_rank"
-    ).reindex(languages)
-
-    figure = go.Figure()
-    figure.add_trace(
-        go.Heatmap(
-            z=share,
-            x=share.columns,
-            y=share.index,
-            colorscale="YlOrRd",
-            colorbar={"title": "Share (%)"},
-            hovertemplate="<b>%{y}</b><br>%{x|%b %Y}<br>%{z:.2f}%<extra></extra>",
-        )
-    )
-    figure.add_trace(
-        go.Heatmap(
-            z=rank,
-            x=rank.columns,
-            y=rank.index,
-            colorscale="Viridis_r",
-            colorbar={"title": "Rank"},
-            visible=False,
-            hovertemplate="<b>%{y}</b><br>%{x|%b %Y}<br>Rank %{z:.0f}<extra></extra>",
-        )
-    )
-    figure.update_layout(
-        updatemenus=[
+            continue
+        language = leaders[slot]
+        subset = frame.loc[frame["language"] == language]
+        payload.append(
             {
-                "type": "buttons",
-                "direction": "right",
-                "x": 0.01,
-                "y": 1.08,
-                "buttons": [
+                "x": subset["period"],
+                "y": subset["rank"],
+                "name": language,
+                "customdata": np.column_stack([subset["share"], subset["category"]]),
+            }
+        )
+    return payload
+
+
+def ranking_explorer_figure(
+    data: pd.DataFrame,
+    colors: Mapping[str, str],
+    count: int = CHART_LIMITS["trajectories"],
+) -> go.Figure:
+    """Explore dynamic leaders by signal, period granularity, and label scope."""
+    scores = list(SCORE_COLUMNS)
+    granularities = ["Month", "Quarter", "Year"]
+    scopes = list(LABEL_SCOPES)
+    payloads = {
+        (score, granularity, scope): _trajectory_payload(
+            data, score, granularity, scope, count
+        )
+        for score in scores
+        for granularity in granularities
+        for scope in scopes
+    }
+    figure = go.Figure()
+    trace_keys = []
+    initial_score = "Composite"
+    for scope in scopes:
+        for granularity in granularities:
+            payload = payloads[(initial_score, granularity, scope)]
+            for item in payload:
+                language = item["name"]
+                figure.add_trace(
+                    go.Scatter(
+                        x=item["x"],
+                        y=item["y"],
+                        mode="lines+markers",
+                        visible=granularity == "Year",
+                        opacity=1 if scope == "All labels" else 0,
+                        name=language,
+                        showlegend=scope == "All labels",
+                        line={
+                            "color": colors.get(language, NEUTRAL),
+                            "width": 2.2,
+                        },
+                        marker={"size": 6},
+                        customdata=item["customdata"],
+                        hovertemplate=(
+                            "<b>%{fullData.name}</b><br>%{x|%b %Y}"
+                            "<br>Rank %{y:.0f}<br>Share %{customdata[0]:.2%}"
+                            "<br>%{customdata[1]}<extra></extra>"
+                        ),
+                    )
+                )
+                trace_keys.append((scope, granularity))
+
+    metric_buttons = []
+    for score in scores:
+        flattened = [
+            item
+            for scope in scopes
+            for granularity in granularities
+            for item in payloads[(score, granularity, scope)]
+        ]
+        metric_buttons.append(
+            {
+                "label": score,
+                "method": "update",
+                "args": [
                     {
-                        "label": "Share",
-                        "method": "update",
-                        "args": [{"visible": [True, False]}],
-                    },
-                    {
-                        "label": "Rank",
-                        "method": "update",
-                        "args": [{"visible": [False, True]}],
-                    },
+                        "x": [item["x"] for item in flattened],
+                        "y": [item["y"] for item in flattened],
+                        "name": [item["name"] for item in flattened],
+                        "customdata": [item["customdata"] for item in flattened],
+                        "line.color": [
+                            colors.get(item["name"], NEUTRAL) for item in flattened
+                        ],
+                    }
                 ],
             }
+        )
+    granularity_buttons = [
+        {
+            "label": granularity,
+            "method": "update",
+            "args": [
+                {
+                    "visible": [
+                        trace_granularity == granularity
+                        for _, trace_granularity in trace_keys
+                    ]
+                }
+            ],
+        }
+        for granularity in granularities
+    ]
+    scope_buttons = [
+        {
+            "label": scope,
+            "method": "update",
+            "args": [
+                {
+                    "opacity": [
+                        1 if trace_scope == scope else 0
+                        for trace_scope, _ in trace_keys
+                    ],
+                    "showlegend": [
+                        trace_scope == scope for trace_scope, _ in trace_keys
+                    ],
+                }
+            ],
+        }
+        for scope in scopes
+    ]
+    metric_menu, metric_label = _menu(metric_buttons, 0.01, "Ranking signal")
+    granularity_menu, granularity_label = _menu(
+        granularity_buttons, 0.31, "Period", active=2
+    )
+    scope_menu, scope_label = _menu(scope_buttons, 0.49, "Label scope")
+    figure.update_layout(
+        updatemenus=[metric_menu, granularity_menu, scope_menu],
+        annotations=[metric_label, granularity_label, scope_label],
+    )
+    figure.update_yaxes(
+        title="Rank",
+        autorange=False,
+        range=[count + 0.5, 0.5],
+        dtick=1,
+        fixedrange=True,
+    )
+    figure.update_xaxes(title=None)
+    return apply_editorial_theme(
+        figure,
+        "Ranking trajectories across signals and timeframes",
+        "Leaders are recalculated for the selected signal and scope; rank 1 is highest.",
+        height=720,
+        legend_title="Dynamic leaders",
+        control_band=True,
+    )
+
+
+def dominance_turnover_figure(
+    data: pd.DataFrame,
+    top_k: int = 10,
+) -> go.Figure:
+    """Show which labels enter and leave the leading tier."""
+    scores = list(SCORE_COLUMNS)
+    granularities = ["Month", "Quarter", "Year"]
+    scopes = list(LABEL_SCOPES)
+
+    def matrix(score: str, granularity: str, scope: str):
+        frame = dominance_turnover(data, score, granularity, scope, top_k)
+        languages = frame["language"].drop_duplicates().tolist()
+        pivot = frame.pivot(index="language", columns="period", values="rank").reindex(
+            languages
+        )
+        return {
+            "x": pivot.columns,
+            "y": pivot.index.astype(str),
+            "z": pivot.to_numpy(),
+            "customdata": pivot.to_numpy(),
+        }
+
+    matrices = {
+        (score, granularity, scope): matrix(score, granularity, scope)
+        for score in scores
+        for granularity in granularities
+        for scope in scopes
+    }
+    figure = go.Figure()
+    trace_keys = []
+    for scope in scopes:
+        for granularity in granularities:
+            item = matrices[("Composite", granularity, scope)]
+            figure.add_trace(
+                go.Heatmap(
+                    x=item["x"],
+                    y=item["y"],
+                    z=item["z"],
+                    customdata=item["customdata"],
+                    visible=granularity == "Year",
+                    opacity=1 if scope == "All labels" else 0,
+                    zmin=1,
+                    zmax=top_k,
+                    colorscale="Viridis_r",
+                    colorbar={"title": "Rank"},
+                    hovertemplate=(
+                        "<b>%{y}</b><br>%{x|%b %Y}"
+                        "<br>Top-tier rank %{customdata:.0f}<extra></extra>"
+                    ),
+                )
+            )
+            trace_keys.append((scope, granularity))
+    metric_buttons = []
+    for score in scores:
+        items = [
+            matrices[(score, granularity, scope)]
+            for scope in scopes
+            for granularity in granularities
         ]
+        metric_buttons.append(
+            {
+                "label": score,
+                "method": "update",
+                "args": [
+                    {
+                        "x": [item["x"] for item in items],
+                        "y": [item["y"] for item in items],
+                        "z": [item["z"] for item in items],
+                        "customdata": [item["customdata"] for item in items],
+                    }
+                ],
+            }
+        )
+    period_buttons = [
+        {
+            "label": granularity,
+            "method": "update",
+            "args": [
+                {
+                    "visible": [
+                        item_granularity == granularity
+                        for _, item_granularity in trace_keys
+                    ]
+                }
+            ],
+        }
+        for granularity in granularities
+    ]
+    scope_buttons = [
+        {
+            "label": scope,
+            "method": "update",
+            "args": [
+                {
+                    "opacity": [
+                        1 if item_scope == scope else 0
+                        for item_scope, _ in trace_keys
+                    ]
+                }
+            ],
+        }
+        for scope in scopes
+    ]
+    menus = [
+        _menu(metric_buttons, 0.01, "Ranking signal"),
+        _menu(period_buttons, 0.31, "Period", active=2),
+        _menu(scope_buttons, 0.49, "Label scope"),
+    ]
+    figure.update_layout(
+        updatemenus=[menu for menu, _ in menus],
+        annotations=[label for _, label in menus],
     )
     return apply_editorial_theme(
         figure,
-        "A decade of monthly share and rank",
-        "Use the toggle to separate absolute prominence from position in the ecosystem.",
-        height=820,
+        "Dominance turnover: who enters and leaves the top tier?",
+        f"Only top-{top_k} appearances are colored; gaps indicate time outside the leading tier.",
+        height=760,
+        control_band=True,
     )
 
 
@@ -614,48 +832,229 @@ def animated_activity_bubble(
     )
 
 
-def community_profile_heatmap(
+def ecosystem_momentum_figure(
     data: pd.DataFrame,
-    languages: Sequence[str],
+    colors: Mapping[str, str],
+    count: int = CHART_LIMITS["explorers"],
 ) -> go.Figure:
-    """Average monthly community-share profiles for leading languages."""
-    columns = [f"{metric}_share" for metric in COMMUNITY_METRICS]
-    profile = (
-        data.loc[data["language"].isin(languages)]
-        .groupby("language")[columns]
-        .mean()
-        .reindex(languages)
-        * 100
-    )
-    profile.columns = [metric.replace("_", " ").title() for metric in COMMUNITY_METRICS]
-    figure = go.Figure(
-        go.Heatmap(
-            z=profile,
-            x=profile.columns,
-            y=profile.index,
-            colorscale="Tealgrn",
-            colorbar={"title": "Average share (%)"},
-            hovertemplate="<b>%{y}</b><br>%{x}: %{z:.2f}%<extra></extra>",
+    """Compare current prominence with change from the preceding year."""
+    scores = list(SCORE_COLUMNS)
+    scopes = list(LABEL_SCOPES)
+    frames = {
+        (score, scope): ecosystem_momentum(data, score, scope, count=count)
+        for score in scores
+        for scope in scopes
+    }
+    figure = go.Figure()
+    for scope in scopes:
+        frame = frames[("Composite", scope)]
+        figure.add_trace(
+            go.Scatter(
+                x=frame["current_share"],
+                y=frame["change"],
+                mode="markers+text",
+                text=np.where(
+                    frame["current_share"].rank(ascending=False) <= 12,
+                    frame["language"],
+                    "",
+                ),
+                textposition="top center",
+                opacity=1 if scope == "All labels" else 0,
+                marker={
+                    "size": 12,
+                    "color": [colors.get(name, NEUTRAL) for name in frame["language"]],
+                    "line": {"color": PANEL, "width": 0.7},
+                },
+                customdata=np.column_stack(
+                    [frame["language"], frame["previous_share"], frame["category"]]
+                ),
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>Latest 12m: %{x:.2%}"
+                    "<br>Change: %{y:+.2%}<br>Prior 12m: %{customdata[1]:.2%}"
+                    "<br>%{customdata[2]}<extra></extra>"
+                ),
+                showlegend=False,
+            )
         )
+    score_buttons = []
+    for score in scores:
+        selected = [frames[(score, scope)] for scope in scopes]
+        score_buttons.append(
+            {
+                "label": score,
+                "method": "update",
+                "args": [
+                    {
+                        "x": [frame["current_share"] for frame in selected],
+                        "y": [frame["change"] for frame in selected],
+                        "text": [
+                            np.where(
+                                frame["current_share"].rank(ascending=False) <= 12,
+                                frame["language"],
+                                "",
+                            )
+                            for frame in selected
+                        ],
+                        "customdata": [
+                            np.column_stack(
+                                [
+                                    frame["language"],
+                                    frame["previous_share"],
+                                    frame["category"],
+                                ]
+                            )
+                            for frame in selected
+                        ],
+                        "marker.color": [
+                            [colors.get(name, NEUTRAL) for name in frame["language"]]
+                            for frame in selected
+                        ],
+                    }
+                ],
+            }
+        )
+    scope_buttons = [
+        {
+            "label": scope,
+            "method": "update",
+            "args": [
+                {
+                    "opacity": [
+                        1 if item_scope == scope else 0 for item_scope in scopes
+                    ]
+                }
+            ],
+        }
+        for scope in scopes
+    ]
+    score_menu, score_label = _menu(score_buttons, 0.01, "Activity signal")
+    scope_menu, scope_label = _menu(scope_buttons, 0.31, "Label scope")
+    figure.update_layout(
+        updatemenus=[score_menu, scope_menu],
+        annotations=[score_label, scope_label],
+    )
+    figure.add_hline(y=0, line_color=MUTED, line_width=1)
+    figure.update_xaxes(title="Average share in latest 12 months", tickformat=".1%")
+    figure.update_yaxes(
+        title="Change from preceding 12 months", tickformat="+.1%"
     )
     return apply_editorial_theme(
         figure,
-        "Different communities leave different activity signatures",
-        "Average within-month share for reach and participation metrics.",
+        "Ecosystem momentum: prominence versus recent change",
+        "Upper-right labels are both prominent and gaining share; lower-right labels are prominent but declining.",
         height=690,
+        control_band=True,
+    )
+
+
+def activity_specialization_figure(
+    data: pd.DataFrame,
+    count: int = CHART_LIMITS["explorers"],
+) -> go.Figure:
+    """Compare absolute activity shares with each label's metric specialization."""
+    scopes = list(LABEL_SCOPES)
+    frames = {}
+    for scope in scopes:
+        scoped = filter_label_scope(data, scope)
+        leaders = (
+            scoped.groupby("language")["composite_share"]
+            .mean()
+            .sort_values(ascending=False)
+            .head(count)
+            .index.tolist()
+        )
+        long = activity_specialization(scoped, leaders)
+        absolute = (
+            long.pivot(index="language", columns="metric", values="absolute_share")
+            .reindex(index=leaders, columns=METRICS)
+            * 100
+        )
+        relative = long.pivot(
+            index="language", columns="metric", values="over_index"
+        ).reindex(index=leaders, columns=METRICS)
+        frames[scope] = (absolute, relative)
+
+    figure = go.Figure()
+    for scope in scopes:
+        absolute, _ = frames[scope]
+        figure.add_trace(
+            go.Heatmap(
+                z=absolute,
+                x=[metric.replace("_", " ").title() for metric in absolute.columns],
+                y=absolute.index,
+                opacity=1 if scope == "All labels" else 0,
+                colorscale="Tealgrn",
+                colorbar={"title": "Share (%)"},
+                hovertemplate="<b>%{y}</b><br>%{x}: %{z:.2f}%<extra></extra>",
+            )
+        )
+    mode_buttons = []
+    for mode, index, colorscale, title, template in [
+        (
+            "Absolute share",
+            0,
+            "Tealgrn",
+            "Share (%)",
+            "<b>%{y}</b><br>%{x}: %{z:.2f}%<extra></extra>",
+        ),
+        (
+            "Relative over-index",
+            1,
+            "RdBu",
+            "Index (1 = neutral)",
+            "<b>%{y}</b><br>%{x}: %{z:.2f}x average<extra></extra>",
+        ),
+    ]:
+        mode_buttons.append(
+            {
+                "label": mode,
+                "method": "update",
+                "args": [
+                    {
+                        "z": [
+                            frames[scope][index].to_numpy() for scope in scopes
+                        ],
+                        "colorscale": [colorscale] * len(scopes),
+                        "zmid": [1 if index else None] * len(scopes),
+                        "hovertemplate": [template] * len(scopes),
+                        "colorbar.title": [title] * len(scopes),
+                    }
+                ],
+            }
+        )
+    scope_buttons = [
+        {
+            "label": scope,
+            "method": "update",
+            "args": [
+                {
+                    "opacity": [
+                        1 if item_scope == scope else 0 for item_scope in scopes
+                    ]
+                }
+            ],
+        }
+        for scope in scopes
+    ]
+    mode_menu, mode_label = _menu(mode_buttons, 0.01, "Heatmap mode")
+    scope_menu, scope_label = _menu(scope_buttons, 0.27, "Label scope")
+    figure.update_layout(
+        updatemenus=[mode_menu, scope_menu],
+        annotations=[mode_label, scope_label],
+    )
+    return apply_editorial_theme(
+        figure,
+        "Activity specialization across ecosystem signals",
+        "Absolute share measures prominence; over-index shows which activities define each ecosystem.",
+        height=980,
+        control_band=True,
     )
 
 
 def concentration_figure(data: pd.DataFrame) -> go.Figure:
-    """Top-k share and effective-number trends."""
-    concentration = monthly_concentration(data)
-    figure = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.12,
-        subplot_titles=("Share held by leaders", "Effective number of languages"),
-    )
+    """Show the monthly composite share held by leading labels."""
+    concentration = top_k_dominance(data)
+    figure = go.Figure()
     for column, label, color in [
         ("top_1_share", "Top 1", "#D95F45"),
         ("top_5_share", "Top 5", "#D89B35"),
@@ -669,59 +1068,49 @@ def concentration_figure(data: pd.DataFrame) -> go.Figure:
                 name=label,
                 line={"color": color, "width": 2.5},
                 hovertemplate=f"{label}<br>%{{x|%b %Y}}: %{{y:.1%}}<extra></extra>",
-            ),
-            row=1,
-            col=1,
+            )
         )
-    figure.add_trace(
-        go.Scatter(
-            x=concentration["date"],
-            y=concentration["effective_languages"],
-            mode="lines",
-            name="Effective languages",
-            line={"color": "#5D4F85", "width": 2.8},
-            hovertemplate="%{x|%b %Y}<br>%{y:.1f} effective languages<extra></extra>",
-        ),
-        row=2,
-        col=1,
-    )
-    figure.update_yaxes(title="Composite share", tickformat=".0%", row=1, col=1)
-    figure.update_yaxes(title="1 / HHI", row=2, col=1)
+    figure.update_yaxes(title="Composite share held by leaders", tickformat=".0%")
     return apply_editorial_theme(
         figure,
-        "Is GitHub language activity becoming more concentrated?",
-        "The effective count is the inverse Herfindahl-Hirschman index.",
-        height=720,
+        "How much activity is held by the leading ecosystems?",
+        "Top-k shares provide a direct, interpretable view of dominance over time.",
+        height=560,
     )
 
 
-def embedding_comparison_figure(
+def projection_method_figure(
     embeddings: pd.DataFrame,
     colors: Mapping[str, str],
-    profile: str = "All activity",
-    label_count: int = 15,
+    method: str,
+    label_count: int = CHART_LIMITS["embedding_labels"],
 ) -> go.Figure:
-    """Three-panel comparison of UMAP, TriMAP, and PaCMAP."""
-    methods = ["UMAP", "TriMAP", "PaCMAP"]
-    figure = make_subplots(
-        rows=1,
-        cols=3,
-        subplot_titles=methods,
-        horizontal_spacing=0.055,
-    )
-    for column, method in enumerate(methods, start=1):
+    """Render one full-width projection method with an activity-profile selector."""
+    if method not in {"UMAP", "TriMAP", "PaCMAP"}:
+        raise ValueError(f"Unknown projection method: {method}")
+    profiles = list(embeddings["profile"].drop_duplicates())
+    figure = go.Figure()
+    for profile_index, profile in enumerate(profiles):
         subset = embeddings.loc[
-            (embeddings["profile"] == profile) & (embeddings["method"] == method)
+            (embeddings["profile"] == profile)
+            & (embeddings["method"] == method)
         ].sort_values("rank")
-        marker_colors = [colors.get(language, NEUTRAL) for language in subset["language"]]
+        labels = np.where(subset["rank"] <= label_count, subset["language"], "")
         figure.add_trace(
             go.Scatter(
                 x=subset["x"],
                 y=subset["y"],
-                mode="markers",
+                mode="markers+text",
+                text=labels,
+                textposition="top center",
+                textfont={"size": 10, "color": TEXT},
+                visible=profile_index == 0,
                 marker={
-                    "color": marker_colors,
-                    "size": np.where(subset["rank"] <= 30, 10, 6),
+                    "color": [
+                        colors.get(language, NEUTRAL)
+                        for language in subset["language"]
+                    ],
+                    "size": np.where(subset["rank"] <= 30, 11, 6),
                     "opacity": np.where(subset["rank"] <= 30, 0.9, 0.42),
                     "line": {"color": PANEL, "width": 0.7},
                 },
@@ -734,121 +1123,46 @@ def embedding_comparison_figure(
                     ]
                 ),
                 hovertemplate=(
-                    "<b>%{customdata[0]}</b>"
-                    "<br>Overall rank: %{customdata[1]:.0f}"
+                    "<b>%{customdata[0]}</b><br>Overall rank %{customdata[1]:.0f}"
                     "<br>%{customdata[2]}"
-                    "<br>Mean composite share: %{customdata[3]:.2%}"
-                    "<extra></extra>"
+                    "<br>Mean composite share %{customdata[3]:.2%}<extra></extra>"
                 ),
                 showlegend=False,
-            ),
-            row=1,
-            col=column,
-        )
-        labels = subset.nsmallest(label_count, "rank")
-        figure.add_trace(
-            go.Scatter(
-                x=labels["x"],
-                y=labels["y"],
-                mode="text",
-                text=labels["language"],
-                textposition="top center",
-                textfont={"size": 10, "color": TEXT},
-                hoverinfo="skip",
-                showlegend=False,
-            ),
-            row=1,
-            col=column,
-        )
-        figure.update_xaxes(visible=False, row=1, col=column)
-        figure.update_yaxes(visible=False, row=1, col=column)
-    return apply_editorial_theme(
-        figure,
-        f"{profile}: three views of activity-vector similarity",
-        "Each point is one language represented by its complete normalized time series.",
-        height=610,
-    )
-
-
-def profile_embedding_figure(
-    embeddings: pd.DataFrame,
-    colors: Mapping[str, str],
-) -> go.Figure:
-    """Use a dropdown to compare profile-specific embeddings across reducers."""
-    profiles = list(embeddings["profile"].drop_duplicates())
-    methods = ["UMAP", "TriMAP", "PaCMAP"]
-    figure = make_subplots(rows=1, cols=3, subplot_titles=methods)
-    trace_profiles = []
-    for profile_index, profile in enumerate(profiles):
-        for column, method in enumerate(methods, start=1):
-            subset = embeddings.loc[
-                (embeddings["profile"] == profile)
-                & (embeddings["method"] == method)
-            ].sort_values("rank")
-            figure.add_trace(
-                go.Scatter(
-                    x=subset["x"],
-                    y=subset["y"],
-                    mode="markers",
-                    visible=profile_index == 0,
-                    marker={
-                        "color": [
-                            colors.get(language, NEUTRAL)
-                            for language in subset["language"]
-                        ],
-                        "size": np.where(subset["rank"] <= 30, 9, 5),
-                        "opacity": np.where(subset["rank"] <= 30, 0.9, 0.38),
-                        "line": {"color": PANEL, "width": 0.6},
-                    },
-                    customdata=np.column_stack(
-                        [subset["language"], subset["rank"], subset["category"]]
-                    ),
-                    hovertemplate=(
-                        "<b>%{customdata[0]}</b><br>Rank %{customdata[1]:.0f}"
-                        "<br>%{customdata[2]}<extra></extra>"
-                    ),
-                    showlegend=False,
-                ),
-                row=1,
-                col=column,
             )
-            trace_profiles.append(profile)
-            figure.update_xaxes(visible=False, row=1, col=column)
-            figure.update_yaxes(visible=False, row=1, col=column)
+        )
     buttons = []
-    for profile in profiles:
+    for profile_index, profile in enumerate(profiles):
         buttons.append(
             {
                 "label": profile,
                 "method": "update",
                 "args": [
-                    {"visible": [item == profile for item in trace_profiles]},
+                    {
+                        "visible": [
+                            index == profile_index for index in range(len(profiles))
+                        ]
+                    },
                     {
                         "title": {
                             "text": _title_html(
-                                f"{profile}: profile-specific similarity",
-                                "The same 100 languages, with only the selected metric family in each vector.",
+                                f"{method}: {profile} activity similarity",
+                                "Each point is one label represented by its complete normalized time series.",
                             )
                         }
                     },
                 ],
             }
         )
-    figure.update_layout(
-        updatemenus=[
-            {
-                "buttons": buttons,
-                "direction": "down",
-                "x": 0.01,
-                "y": 1.12,
-            }
-        ]
-    )
+    menu, annotation = _menu(buttons, 0.01, "Activity profile")
+    figure.update_layout(updatemenus=[menu], annotations=[annotation])
+    figure.update_xaxes(visible=False)
+    figure.update_yaxes(visible=False)
     return apply_editorial_theme(
         figure,
-        f"{profiles[0]}: profile-specific similarity",
-        "The same 100 languages, with only the selected metric family in each vector.",
-        height=590,
+        f"{method}: {profiles[0]} activity similarity",
+        "Each point is one label represented by its complete normalized time series.",
+        height=760,
+        control_band=True,
     )
 
 
@@ -891,7 +1205,7 @@ def embedding_quality_figure(scores: pd.DataFrame) -> go.Figure:
         )
     return apply_editorial_theme(
         figure,
-        "No single projection preserves every kind of structure",
+        "Projection Quality Diagnostics",
         "Higher is better; local-neighborhood and global-distance scores answer different questions.",
         height=510,
     )

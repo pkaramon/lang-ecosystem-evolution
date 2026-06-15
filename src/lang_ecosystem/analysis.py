@@ -54,6 +54,25 @@ COMMUNITY_METRICS = [
     "active_repos",
 ]
 
+SCORE_COLUMNS = {
+    "Composite": "composite_share",
+    "Contribution": "contribution_share",
+    "Community": "community_share",
+    **{metric.replace("_", " ").title(): f"{metric}_share" for metric in METRICS},
+}
+
+LABEL_SCOPES = {
+    "All labels": None,
+    "Programming languages": "Programming language",
+    "Technology / artifacts": "Technology / artifact",
+}
+
+PERIOD_FREQUENCIES = {
+    "Month": "MS",
+    "Quarter": "QS",
+    "Year": "YS",
+}
+
 ACTIVITY_PROFILES = {
     "All activity": METRICS,
     "Contribution": CONTRIBUTION_METRICS,
@@ -189,9 +208,10 @@ def add_smoothed_shares(
     data: pd.DataFrame,
     columns: Sequence[str] | None = None,
     window: int = 3,
-    center: bool = True,
+    center: bool = False,
+    suffix: str | None = None,
 ) -> pd.DataFrame:
-    """Add centered rolling means while retaining the unsmoothed columns."""
+    """Add rolling means while retaining the unsmoothed columns."""
     if window < 1:
         raise ValueError("window must be at least 1")
     columns = list(
@@ -209,8 +229,200 @@ def add_smoothed_shares(
             window=window, center=center, min_periods=1
         ).mean()
     )
-    smoothed.columns = [f"{column}_smooth" for column in columns]
+    suffix = suffix or ("smooth" if window == 3 else f"{window}m")
+    smoothed.columns = [f"{column}_{suffix}" for column in columns]
     return pd.concat([result, smoothed], axis=1)
+
+
+def add_trailing_shares(
+    data: pd.DataFrame,
+    windows: Sequence[int] = (3, 12),
+) -> pd.DataFrame:
+    """Add trailing rolling means for every share and composite score."""
+    result = data.copy()
+    for window in windows:
+        result = add_smoothed_shares(
+            result,
+            window=window,
+            center=False,
+            suffix=f"{window}m",
+        )
+    if 3 in windows:
+        share_columns = [
+            *(f"{metric}_share" for metric in METRICS),
+            "composite_share",
+            "contribution_share",
+            "community_share",
+        ]
+        for column in share_columns:
+            result[f"{column}_smooth"] = result[f"{column}_3m"]
+    return result
+
+
+def filter_label_scope(data: pd.DataFrame, scope: str = "All labels") -> pd.DataFrame:
+    """Filter a prepared frame to one of the supported label categories."""
+    if scope not in LABEL_SCOPES:
+        raise ValueError(f"Unknown label scope: {scope}")
+    category = LABEL_SCOPES[scope]
+    if category is None:
+        return data.copy()
+    if "category" not in data:
+        raise ValueError("A category column is required for scoped analysis")
+    return data.loc[data["category"] == category].copy()
+
+
+def aggregate_period_shares(
+    data: pd.DataFrame,
+    score: str = "Composite",
+    granularity: str = "Year",
+    scope: str = "All labels",
+) -> pd.DataFrame:
+    """Aggregate monthly shares to periods and rank all labels in each period."""
+    if score not in SCORE_COLUMNS:
+        raise ValueError(f"Unknown score: {score}")
+    if granularity not in PERIOD_FREQUENCIES:
+        raise ValueError(f"Unknown granularity: {granularity}")
+    subset = filter_label_scope(data, scope)
+    score_column = SCORE_COLUMNS[score]
+    if score_column not in subset:
+        raise ValueError(f"Missing score column: {score_column}")
+
+    subset["period"] = subset["date"].dt.to_period(
+        {"Month": "M", "Quarter": "Q", "Year": "Y"}[granularity]
+    ).dt.start_time
+    period = (
+        subset.groupby(["period", "language"], as_index=False)
+        .agg(
+            share=(score_column, "mean"),
+            months=("date", "nunique"),
+            category=("category", "first"),
+        )
+        .sort_values(["period", "share", "language"], ascending=[True, False, True])
+    )
+    period["rank"] = period.groupby("period")["share"].rank(
+        method="min", ascending=False
+    )
+    period["score"] = score
+    period["granularity"] = granularity
+    period["scope"] = scope
+    return period.reset_index(drop=True)
+
+
+def ranking_trajectories(
+    data: pd.DataFrame,
+    score: str = "Composite",
+    granularity: str = "Year",
+    scope: str = "All labels",
+    count: int = 20,
+) -> pd.DataFrame:
+    """Return period ranks for the strongest labels under the selected settings."""
+    period = aggregate_period_shares(data, score, granularity, scope)
+    leaders = (
+        period.groupby("language", as_index=False)["share"]
+        .mean()
+        .sort_values(["share", "language"], ascending=[False, True])
+        .head(count)["language"]
+    )
+    return period.loc[
+        period["language"].isin(leaders) & period["rank"].le(count)
+    ].copy()
+
+
+def dominance_turnover(
+    data: pd.DataFrame,
+    score: str = "Composite",
+    granularity: str = "Year",
+    scope: str = "All labels",
+    top_k: int = 10,
+) -> pd.DataFrame:
+    """Return the union of labels that enter the top-k in any period."""
+    period = aggregate_period_shares(data, score, granularity, scope)
+    turnover = period.loc[period["rank"] <= top_k].copy()
+    order = (
+        turnover.groupby("language")
+        .agg(best_rank=("rank", "min"), first_period=("period", "min"))
+        .sort_values(["best_rank", "first_period"])
+        .index
+    )
+    turnover["language"] = pd.Categorical(
+        turnover["language"], categories=order, ordered=True
+    )
+    return turnover.sort_values(["language", "period"]).reset_index(drop=True)
+
+
+def ecosystem_momentum(
+    data: pd.DataFrame,
+    score: str = "Composite",
+    scope: str = "All labels",
+    window: int = 12,
+    count: int = 40,
+) -> pd.DataFrame:
+    """Compare the latest window with the immediately preceding window."""
+    if window < 1:
+        raise ValueError("window must be at least 1")
+    if score not in SCORE_COLUMNS:
+        raise ValueError(f"Unknown score: {score}")
+    subset = filter_label_scope(data, scope)
+    dates = np.sort(subset["date"].unique())
+    if len(dates) < window * 2:
+        raise ValueError("Not enough periods for two momentum windows")
+    previous_dates = dates[-2 * window : -window]
+    latest_dates = dates[-window:]
+    score_column = SCORE_COLUMNS[score]
+    previous = (
+        subset.loc[subset["date"].isin(previous_dates)]
+        .groupby("language")[score_column]
+        .mean()
+    )
+    latest = (
+        subset.loc[subset["date"].isin(latest_dates)]
+        .groupby("language")[score_column]
+        .mean()
+    )
+    frame = pd.concat(
+        [previous.rename("previous_share"), latest.rename("current_share")],
+        axis=1,
+    ).fillna(0)
+    frame["change"] = frame["current_share"] - frame["previous_share"]
+    metadata = subset.groupby("language")["category"].first()
+    frame["category"] = metadata
+    frame = (
+        frame.reset_index()
+        .sort_values(["current_share", "language"], ascending=[False, True])
+        .head(count)
+    )
+    frame["score"] = score
+    frame["scope"] = scope
+    return frame.reset_index(drop=True)
+
+
+def activity_specialization(
+    data: pd.DataFrame,
+    languages: Sequence[str],
+) -> pd.DataFrame:
+    """Return absolute metric shares and each language's metric over-index."""
+    columns = [f"{metric}_share" for metric in METRICS]
+    absolute = (
+        data.loc[data["language"].isin(languages)]
+        .groupby("language")[columns]
+        .mean()
+        .reindex(languages)
+    )
+    absolute.columns = METRICS
+    baseline = absolute.mean(axis=1).replace(0, np.nan)
+    relative = absolute.div(baseline, axis=0)
+    rows = []
+    for language in absolute.index:
+        for metric in METRICS:
+            rows.append(
+                {
+                    "language": language,
+                    "metric": metric,
+                    "absolute_share": absolute.loc[language, metric],
+                    "over_index": relative.loc[language, metric],
+                }
+            )
+    return pd.DataFrame(rows)
 
 
 def classify_language(language: str) -> str:
@@ -556,20 +768,17 @@ def evaluate_embeddings(
     return pd.DataFrame(scores)
 
 
-def monthly_concentration(data: pd.DataFrame) -> pd.DataFrame:
-    """Calculate concentration statistics from monthly composite shares."""
+def top_k_dominance(data: pd.DataFrame) -> pd.DataFrame:
+    """Calculate the monthly composite share held by leading labels."""
     records = []
     for date, group in data.groupby("date", sort=True):
         shares = np.sort(group["composite_share"].to_numpy(dtype=float))[::-1]
-        hhi = float(np.square(shares).sum())
         records.append(
             {
                 "date": date,
                 "top_1_share": float(shares[:1].sum()),
                 "top_5_share": float(shares[:5].sum()),
                 "top_10_share": float(shares[:10].sum()),
-                "hhi": hhi,
-                "effective_languages": 1.0 / hhi,
             }
         )
     return pd.DataFrame(records)
