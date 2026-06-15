@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,21 +94,7 @@ def get_embeddings() -> EmbeddingData:
         embeddings,
         n_neighbors=10,
     )
-    vector_summary = pd.DataFrame(
-        {
-            "Languages": [matrix.shape[0] for matrix in profile_vectors.values()],
-            "Features": [matrix.shape[1] for matrix in profile_vectors.values()],
-            "First feature": [
-                f"{matrix.columns[0][0]} / {matrix.columns[0][1]:%Y-%m}"
-                for matrix in profile_vectors.values()
-            ],
-            "Last feature": [
-                f"{matrix.columns[-1][0]} / {matrix.columns[-1][1]:%Y-%m}"
-                for matrix in profile_vectors.values()
-            ],
-        },
-        index=profile_vectors.keys(),
-    )
+    vector_summary = vector_summary_table(profile_vectors)
     return EmbeddingData(
         profile_vectors=profile_vectors,
         embeddings=embeddings,
@@ -139,12 +126,105 @@ def dataset_summary_metrics(activity: pd.DataFrame, top_150_count: int) -> pd.Da
     )
 
 
+def format_vector_columns(matrix: pd.DataFrame) -> list[str]:
+    """Return human-readable labels for every feature column in a profile matrix."""
+    return [
+        f"{metric} / {date:%Y-%m}"
+        for metric, date in matrix.columns
+    ]
+
+
+def vector_summary_table(profile_vectors: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """Summarize embedding input vectors with an explicit metrics list per profile."""
+    return pd.DataFrame(
+        {
+            "Languages": [matrix.shape[0] for matrix in profile_vectors.values()],
+            "Features": [matrix.shape[1] for matrix in profile_vectors.values()],
+            "Metrics": [
+                ", ".join(matrix.columns.get_level_values("metric").unique())
+                for matrix in profile_vectors.values()
+            ],
+        },
+        index=profile_vectors.keys(),
+    )
+
+
+def render_profile_vector_columns(profile_vectors: Mapping[str, pd.DataFrame]) -> None:
+    with st.expander("All feature columns", expanded=False):
+        st.markdown(
+            "Each feature is one metric's within-month share for one calendar month. "
+            "Columns are ordered metric-major: all months for the first metric, then "
+            "all months for the next metric, and so on."
+        )
+        for profile, matrix in profile_vectors.items():
+            st.markdown(f"**{profile}** — {matrix.shape[1]} features")
+            st.dataframe(
+                pd.DataFrame({"Feature": format_vector_columns(matrix)}),
+                use_container_width=True,
+            )
+
+
 def render_plotly(fig) -> None:
     st.plotly_chart(fig, use_container_width=True, config=PLOT_CONFIG)
 
 
 def render_dataset_markdown() -> None:
     st.markdown(DATASET_MD_PATH.read_text(encoding="utf-8"))
+
+
+def render_metrics_glossary() -> None:
+    with st.expander("How we score activity", expanded=False):
+        st.markdown(
+            """
+**Within-month share** — For each metric (pushes, pull requests, issues,
+issue comments, stars, forks, creates, contributors, active repos), a
+language's count divided by the total for that metric in the same month.
+Always compare shares, not raw counts — the dataset samples only the 15th
+of each month.
+
+**Composite share** — Equal-weight average of all nine metric shares. This
+is the default popularity score used in most charts.
+
+**Contribution share** — Average of five contribution signals: pushes, pull
+requests, issues, issue comments, and creates.
+
+**Community share** — Average of four reach signals: stars, forks,
+contributors, and active repos.
+
+**Trailing 3 / 12 months** — Rolling mean of monthly shares per language,
+used to smooth single-day sampling noise.
+
+**Top-k dominance** — Sum of composite shares held by the top 1, 5, or 10
+languages in a month.
+"""
+        )
+
+
+def render_diversity_metrics_explainer() -> None:
+    with st.expander(
+        "What do inverse HHI and exponential Shannon mean?", expanded=False
+    ):
+        st.markdown(
+            """
+**HHI (Herfindahl–Hirschman Index)** — Sum of squared shares; measures
+concentration. One dominant language gives HHI near 1; many equal languages
+give HHI near 1/N.
+
+**Inverse HHI (1/HHI)** — Reframes concentration as an *effective number
+of equal-sized ecosystems*. If 10 languages each held 10% share, inverse
+HHI is about 10. Higher means more diverse.
+
+**Exponential Shannon (exp(entropy))** — Shannon entropy is
+−Σ p·log(p); exponentiating gives another effective-count measure with the
+same equal-split intuition. It is typically slightly higher than inverse
+HHI for the same distribution.
+
+**How the chart uses them** — Each month, language shares within the
+selected scope are renormalized to probabilities, both effective counts are
+computed, then a trailing 3-month average is applied (matching the
+chart's default smoothing).
+"""
+        )
 
 
 def long_run_change_summary(activity: pd.DataFrame) -> tuple[pd.Series, pd.Series]:

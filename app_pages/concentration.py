@@ -2,7 +2,11 @@
 
 import streamlit as st
 
-from lang_ecosystem.streamlit_helpers import get_prepared_data, render_plotly
+from lang_ecosystem.streamlit_helpers import (
+    get_prepared_data,
+    render_diversity_metrics_explainer,
+    render_plotly,
+)
 from lang_ecosystem.visuals import concentration_figure, diversity_figure
 
 
@@ -17,4 +21,5 @@ def render() -> None:
     )
 
     render_plotly(concentration_figure(prepared.activity))
+    render_diversity_metrics_explainer()
     render_plotly(diversity_figure(prepared.activity))

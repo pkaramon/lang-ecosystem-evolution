@@ -7,7 +7,6 @@ from lang_ecosystem.visuals import (
     activity_specialization_figure,
     animated_activity_bubble,
     ecosystem_momentum_figure,
-    signal_agreement_figure,
 )
 
 
@@ -25,5 +24,4 @@ def render() -> None:
         animated_activity_bubble(prepared.activity, prepared.top_40, prepared.colors)
     )
     render_plotly(activity_specialization_figure(prepared.activity))
-    render_plotly(signal_agreement_figure(prepared.activity))
     render_plotly(ecosystem_momentum_figure(prepared.activity, prepared.colors))

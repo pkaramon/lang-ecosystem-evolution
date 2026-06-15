@@ -5,6 +5,7 @@ import streamlit as st
 from lang_ecosystem.streamlit_helpers import (
     get_prepared_data,
     render_dataset_markdown,
+    render_metrics_glossary,
 )
 
 
@@ -18,6 +19,8 @@ def render() -> None:
         "This dataset samples only the **15th day of each month**. "
         "Compare **shares, percentages, and trends** — not raw counts across months."
     )
+
+    render_metrics_glossary()
 
     st.divider()
     render_dataset_markdown()
