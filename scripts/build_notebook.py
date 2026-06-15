@@ -38,7 +38,7 @@ cells = [
         ## 1. Setup and visual language
 
         The analysis uses one fixed color per leading language. Dense trajectories show
-        20 labels, community explorers show 40, and dimensionality-reduction views use
+        12 labels, community explorers show 40, and dimensionality-reduction views use
         150. The 30 most prominent labels retain vivid colors; the longer tail is muted
         to keep the structure readable.
         """
@@ -87,8 +87,10 @@ cells = [
             CHART_LIMITS,
             activity_specialization_figure,
             animated_activity_bubble,
+            category_composition_figure,
             composite_trend_figure,
             concentration_figure,
+            diversity_figure,
             dominance_turnover_figure,
             ecosystem_momentum_figure,
             embedding_quality_figure,
@@ -96,8 +98,10 @@ cells = [
             leaders_decliners_figure,
             metric_trend_figure,
             projection_method_figure,
+            rank_stability_figure,
             ranking_explorer_figure,
             sampling_bias_figure,
+            signal_agreement_figure,
             stacked_area_figure,
         )
 
@@ -147,7 +151,7 @@ cells = [
 
         top_150 = ranking.head(CHART_LIMITS["embeddings"])["language"].tolist()
         top_40 = top_150[: CHART_LIMITS["explorers"]]
-        top_20 = top_150[: CHART_LIMITS["trajectories"]]
+        top_12 = top_150[: CHART_LIMITS["trajectories"]]
         colors = language_color_map(top_150)
         colors["Other"] = "#D7D1C8"
 
@@ -215,7 +219,7 @@ cells = [
     ),
     code(
         """
-        sampling_bias_figure(activity, top_20[:5], colors).show(config=PLOT_CONFIG)
+        sampling_bias_figure(activity, top_12[:5], colors).show(config=PLOT_CONFIG)
         """
     ),
     markdown(
@@ -228,25 +232,30 @@ cells = [
     ),
     code(
         """
-        composite_trend_figure(activity, top_20, colors).show(config=PLOT_CONFIG)
+        composite_trend_figure(activity, top_12, colors).show(config=PLOT_CONFIG)
         """
     ),
     code(
         """
-        metric_trend_figure(activity, top_20, colors).show(config=PLOT_CONFIG)
+        metric_trend_figure(activity, top_12, colors).show(config=PLOT_CONFIG)
         """
     ),
     code(
         """
-        stacked_area_figure(activity, top_20, colors).show(config=PLOT_CONFIG)
+        stacked_area_figure(activity, top_12, colors).show(config=PLOT_CONFIG)
+        """
+    ),
+    code(
+        """
+        category_composition_figure(activity).show(config=PLOT_CONFIG)
         """
     ),
     markdown(
         """
         The stacked view answers a market-share question; the ranking explorer answers a
-        position question. Its controls independently change the activity signal, period,
-        and label scope. Dynamic leaders are recalculated for each selected signal, so
-        metric specialists are not excluded by the composite ranking.
+        position question. Its controls change the ranking signal and the combined
+        period/scope view. A stable cohort is followed through every selected period, so
+        a temporary fall no longer makes a trajectory silently disappear.
         """
     ),
     code(
@@ -257,6 +266,11 @@ cells = [
     code(
         """
         dominance_turnover_figure(activity).show(config=PLOT_CONFIG)
+        """
+    ),
+    code(
+        """
+        rank_stability_figure(activity, colors).show(config=PLOT_CONFIG)
         """
     ),
     markdown(
@@ -325,6 +339,11 @@ cells = [
     ),
     code(
         """
+        signal_agreement_figure(activity).show(config=PLOT_CONFIG)
+        """
+    ),
+    code(
+        """
         ecosystem_momentum_figure(activity, colors).show(config=PLOT_CONFIG)
         """
     ),
@@ -332,14 +351,19 @@ cells = [
         """
         ## 7. Is the ecosystem concentrating?
 
-        Top-k shares show directly how much of the composite activity belongs to the
-        leading one, five, and ten ecosystems. This avoids translating the distribution
-        into a less interpretable synthetic count.
+        Top-k shares show directly how much activity belongs to the leading ecosystems.
+        Effective counts complement that view by translating concentration and entropy
+        into the number of equally sized ecosystems that would produce the same diversity.
         """
     ),
     code(
         """
         concentration_figure(activity).show(config=PLOT_CONFIG)
+        """
+    ),
+    code(
+        """
+        diversity_figure(activity).show(config=PLOT_CONFIG)
         """
     ),
     markdown(
@@ -483,6 +507,8 @@ cells = [
         - Turnover, momentum, and specialization distinguish leadership changes from
           community behavior: a prominent ecosystem can decline while a smaller one
           over-indexes strongly on discussion, contribution, or adoption signals.
+        - Category composition, signal agreement, rank volatility, and effective diversity
+          separate broad structural change from movement in individual labels.
         - The three projections are complementary. UMAP emphasizes local neighborhoods,
           while TriMAP and PaCMAP optimize different combinations of local and global
           structure; the quality diagnostics make those trade-offs visible.

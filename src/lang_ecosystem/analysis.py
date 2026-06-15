@@ -313,9 +313,9 @@ def ranking_trajectories(
     score: str = "Composite",
     granularity: str = "Year",
     scope: str = "All labels",
-    count: int = 20,
+    count: int = 12,
 ) -> pd.DataFrame:
-    """Return period ranks for the strongest labels under the selected settings."""
+    """Return complete period ranks for a stable cohort of leading labels."""
     period = aggregate_period_shares(data, score, granularity, scope)
     leaders = (
         period.groupby("language", as_index=False)["share"]
@@ -323,9 +323,7 @@ def ranking_trajectories(
         .sort_values(["share", "language"], ascending=[False, True])
         .head(count)["language"]
     )
-    return period.loc[
-        period["language"].isin(leaders) & period["rank"].le(count)
-    ].copy()
+    return period.loc[period["language"].isin(leaders)].copy()
 
 
 def dominance_turnover(
@@ -348,6 +346,143 @@ def dominance_turnover(
         turnover["language"], categories=order, ordered=True
     )
     return turnover.sort_values(["language", "period"]).reset_index(drop=True)
+
+
+def category_composition(
+    data: pd.DataFrame,
+    score: str = "Composite",
+    window: int = 3,
+) -> pd.DataFrame:
+    """Return category shares over time with optional trailing smoothing."""
+    if score not in SCORE_COLUMNS:
+        raise ValueError(f"Unknown score: {score}")
+    if window < 1:
+        raise ValueError("window must be at least 1")
+    score_column = SCORE_COLUMNS[score]
+    frame = (
+        data.groupby(["date", "category"], as_index=False)[score_column]
+        .sum()
+        .rename(columns={score_column: "raw_share"})
+        .sort_values(["category", "date"])
+    )
+    frame["share"] = frame.groupby("category", sort=False)["raw_share"].transform(
+        lambda values: values.rolling(window=window, min_periods=1).mean()
+    )
+    frame["score"] = score
+    frame["window"] = window
+    return frame.reset_index(drop=True)
+
+
+def signal_rank_agreement(
+    data: pd.DataFrame,
+    reference_score: str = "Composite",
+    scope: str = "All labels",
+    window: int = 3,
+) -> pd.DataFrame:
+    """Compare one signal's monthly ranking with every other signal."""
+    if reference_score not in SCORE_COLUMNS:
+        raise ValueError(f"Unknown score: {reference_score}")
+    if window < 1:
+        raise ValueError("window must be at least 1")
+    subset = filter_label_scope(data, scope)
+    score_names = list(SCORE_COLUMNS)
+    rows = []
+    for date, monthly in subset.groupby("date", sort=True):
+        reference = monthly[SCORE_COLUMNS[reference_score]]
+        for score in score_names:
+            if score == reference_score:
+                continue
+            agreement = reference.corr(
+                monthly[SCORE_COLUMNS[score]], method="spearman"
+            )
+            rows.append(
+                {
+                    "date": date,
+                    "signal": score,
+                    "raw_agreement": float(agreement),
+                }
+            )
+    frame = pd.DataFrame(rows).sort_values(["signal", "date"])
+    frame["agreement"] = frame.groupby("signal", sort=False)[
+        "raw_agreement"
+    ].transform(lambda values: values.rolling(window=window, min_periods=1).mean())
+    frame["reference_score"] = reference_score
+    frame["scope"] = scope
+    frame["window"] = window
+    return frame.reset_index(drop=True)
+
+
+def rank_stability(
+    data: pd.DataFrame,
+    score: str = "Composite",
+    granularity: str = "Quarter",
+    scope: str = "All labels",
+    count: int = 40,
+) -> pd.DataFrame:
+    """Summarize prominence and rank volatility for leading ecosystems."""
+    if count < 1:
+        raise ValueError("count must be at least 1")
+    period = aggregate_period_shares(data, score, granularity, scope)
+    frame = (
+        period.groupby("language", as_index=False)
+        .agg(
+            mean_share=("share", "mean"),
+            mean_rank=("rank", "mean"),
+            rank_volatility=("rank", "std"),
+            best_rank=("rank", "min"),
+            worst_rank=("rank", "max"),
+            periods=("period", "nunique"),
+            category=("category", "first"),
+        )
+        .sort_values(["mean_share", "language"], ascending=[False, True])
+        .head(count)
+    )
+    frame["rank_volatility"] = frame["rank_volatility"].fillna(0)
+    frame["score"] = score
+    frame["granularity"] = granularity
+    frame["scope"] = scope
+    return frame.reset_index(drop=True)
+
+
+def ecosystem_diversity(
+    data: pd.DataFrame,
+    score: str = "Composite",
+    scope: str = "All labels",
+    window: int = 3,
+) -> pd.DataFrame:
+    """Return effective ecosystem counts derived from HHI and entropy."""
+    if score not in SCORE_COLUMNS:
+        raise ValueError(f"Unknown score: {score}")
+    if window < 1:
+        raise ValueError("window must be at least 1")
+    subset = filter_label_scope(data, scope)
+    score_column = SCORE_COLUMNS[score]
+    rows = []
+    for date, monthly in subset.groupby("date", sort=True):
+        shares = monthly[score_column].to_numpy(dtype=float)
+        total = shares.sum()
+        if total <= 0:
+            raise ValueError(f"Non-positive scoped share total for {date:%Y-%m}")
+        probabilities = shares / total
+        positive = probabilities[probabilities > 0]
+        hhi = float(np.square(probabilities).sum())
+        entropy = float(-(positive * np.log(positive)).sum())
+        rows.append(
+            {
+                "date": date,
+                "raw_effective_hhi": 1.0 / hhi,
+                "raw_effective_entropy": float(np.exp(entropy)),
+            }
+        )
+    frame = pd.DataFrame(rows).sort_values("date")
+    for column in ["effective_hhi", "effective_entropy"]:
+        frame[column] = frame[f"raw_{column}"].rolling(
+            window=window, min_periods=1
+        ).mean()
+    frame["score"] = score
+    frame["scope"] = scope
+    frame["window"] = window
+    return frame.reset_index(drop=True)
 
 
 def ecosystem_momentum(

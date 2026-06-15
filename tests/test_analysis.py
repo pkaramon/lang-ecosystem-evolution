@@ -14,16 +14,20 @@ from lang_ecosystem.analysis import (
     aggregate_period_shares,
     build_activity_vectors,
     build_profile_vectors,
+    category_composition,
     complete_month_grid,
     dominance_turnover,
+    ecosystem_diversity,
     embed_activity_vectors,
     ecosystem_momentum,
     evaluate_embeddings,
     filter_label_scope,
     load_activity_data,
+    rank_stability,
     rank_languages,
     ranking_trajectories,
     run_all_embeddings,
+    signal_rank_agreement,
     top_k_dominance,
 )
 from lang_ecosystem.visuals import (
@@ -31,13 +35,17 @@ from lang_ecosystem.visuals import (
     FIXED_LANGUAGE_COLORS,
     NEUTRAL,
     activity_specialization_figure,
+    category_composition_figure,
     composite_trend_figure,
+    diversity_figure,
     dominance_turnover_figure,
     ecosystem_momentum_figure,
     language_color_map,
     metric_trend_figure,
     projection_method_figure,
+    rank_stability_figure,
     ranking_explorer_figure,
+    signal_agreement_figure,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -219,11 +227,61 @@ def test_dynamic_rankings_and_turnover_respect_limits(prepared_data):
     )
     assert trajectories["language"].nunique() == 20
     assert trajectories["granularity"].eq("Quarter").all()
-    assert trajectories["rank"].between(1, 20).all()
+    period_count = aggregate_period_shares(
+        shares, "Issue Comments", "Quarter"
+    )["period"].nunique()
+    assert trajectories.groupby("language")["period"].nunique().eq(period_count).all()
+    assert trajectories["rank"].max() > 20
 
     turnover = dominance_turnover(shares, "Issues", "Year", top_k=10)
     assert turnover["rank"].le(10).all()
     assert turnover["language"].nunique() >= 10
+
+
+def test_structural_analysis_helpers(prepared_data):
+    _, _, shares, _ = prepared_data
+
+    composition = category_composition(shares, "Composite", window=3)
+    raw_totals = composition.groupby("date")["raw_share"].sum()
+    np.testing.assert_allclose(raw_totals, 1.0)
+    languages = composition.loc[
+        composition["category"] == "Programming language"
+    ].sort_values("date")
+    assert languages["share"].iloc[2] == pytest.approx(
+        languages["raw_share"].iloc[:3].mean()
+    )
+
+    agreement = signal_rank_agreement(
+        shares, "Composite", "Programming languages", window=3
+    )
+    assert agreement["signal"].nunique() == 11
+    assert "Composite" not in set(agreement["signal"])
+    assert agreement["agreement"].between(-1, 1).all()
+
+    stability = rank_stability(
+        shares, "Stars", "Quarter", "Technology / artifacts", count=40
+    )
+    assert len(stability) == 25
+    assert set(stability["category"]) == {"Technology / artifact"}
+    assert (stability["rank_volatility"] >= 0).all()
+
+    diversity = ecosystem_diversity(
+        shares, "Composite", "Programming languages", window=3
+    )
+    assert np.isfinite(
+        diversity[
+            [
+                "effective_hhi",
+                "effective_entropy",
+                "raw_effective_hhi",
+                "raw_effective_entropy",
+            ]
+        ].to_numpy()
+    ).all()
+    assert (
+        diversity["raw_effective_hhi"] <= diversity["raw_effective_entropy"] + 1e-12
+    ).all()
+    assert (diversity[["effective_hhi", "effective_entropy"]] >= 1).all().all()
 
 
 def test_scope_momentum_specialization_and_dominance(prepared_data):
@@ -273,8 +331,8 @@ def test_interactive_figures_have_control_bands_and_expected_limits(prepared_dat
 
     assert len(composite.data) == CHART_LIMITS["trajectories"]
     assert len(metrics.layout.updatemenus) == 2
-    assert len(ranking_figure.layout.updatemenus) == 3
-    assert len(turnover.layout.updatemenus) == 3
+    assert len(ranking_figure.layout.updatemenus) == 2
+    assert len(turnover.layout.updatemenus) == 2
     assert len(momentum.layout.updatemenus) == 2
     assert len(specialization.layout.updatemenus) == 2
     for figure in [
@@ -285,15 +343,64 @@ def test_interactive_figures_have_control_bands_and_expected_limits(prepared_dat
         momentum,
         specialization,
     ]:
-        assert figure.layout.margin.t >= 175
+        assert figure.layout.margin.t == 145
         assert figure.layout.title.yref == "container"
-        assert figure.layout.title.y == pytest.approx(0.955)
+        assert figure.layout.title.y == pytest.approx(0.96)
         assert figure.layout.title.yanchor == "top"
+        plot_height = figure.layout.height - figure.layout.margin.t - figure.layout.margin.b
+        assert all(menu.yanchor == "bottom" for menu in figure.layout.updatemenus)
+        assert all(menu.pad.t == 0 for menu in figure.layout.updatemenus)
+        assert all(
+            (menu.y - 1) * plot_height == pytest.approx(12)
+            for menu in figure.layout.updatemenus
+        )
+        assert all(annotation.yanchor == "middle" for annotation in figure.layout.annotations)
+        assert all(
+            (annotation.y - 1) * plot_height == pytest.approx(60)
+            for annotation in figure.layout.annotations
+        )
         pio.to_json(figure)
 
-    assert ranking_figure.layout.yaxis.autorange is False
-    assert ranking_figure.layout.yaxis.range == (20.5, 0.5)
-    assert ranking_figure.layout.yaxis.fixedrange is True
+    assert ranking_figure.layout.yaxis.autorange == "reversed"
+    assert sum(trace.visible is True for trace in ranking_figure.data) == 12
+    assert all(trace.opacity is None for trace in ranking_figure.data)
+    assert sum(trace.visible is True for trace in turnover.data) == 1
+    assert all(trace.opacity is None for trace in turnover.data)
+    assert sum(trace.visible is True for trace in momentum.data) == 1
+    assert all(trace.opacity is None for trace in momentum.data)
+    assert sum(trace.visible is True for trace in specialization.data) == 1
+    assert all(trace.opacity is None for trace in specialization.data)
+    assert "Makefile" not in set(specialization.data[1].y)
+    assert set(specialization.data[1].y).issubset(
+        set(
+            filter_label_scope(shares, "Programming languages")[
+                "language"
+            ].unique()
+        )
+    )
+
+
+def test_new_structural_figures_are_interactive_and_serializable(prepared_data):
+    _, _, shares, ranking = prepared_data
+    colors = language_color_map(ranking.head(150)["language"].tolist())
+    figures = [
+        category_composition_figure(shares),
+        signal_agreement_figure(shares),
+        rank_stability_figure(shares, colors),
+        diversity_figure(shares),
+    ]
+    for figure in figures:
+        assert len(figure.layout.updatemenus) == 2
+        assert figure.layout.margin.t == 145
+        assert all(menu.yanchor == "bottom" for menu in figure.layout.updatemenus)
+        assert all(trace.opacity is None for trace in figure.data)
+        pio.to_json(figure)
+
+    category, agreement, stability, diversity = figures
+    assert sum(trace.visible is True for trace in category.data) == 2
+    assert sum(trace.visible is True for trace in agreement.data) == 1
+    assert sum(trace.visible is True for trace in stability.data) == 1
+    assert sum(trace.visible is True for trace in diversity.data) == 2
 
 
 def test_projection_method_figure_is_full_width_and_profile_selectable(
@@ -315,3 +422,5 @@ def test_projection_method_figure_is_full_width_and_profile_selectable(
     assert len(figure.data) == len(ACTIVITY_PROFILES)
     assert len(figure.layout.updatemenus) == 1
     assert figure.layout.height == 760
+    assert "activity-profile similarity" in figure.layout.title.text
+    assert len(figure.layout.updatemenus[0].buttons[0].args) == 1
