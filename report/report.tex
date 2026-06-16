@@ -1,0 +1,210 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\defaultfontfeatures{Ligatures=TeX}
+\IfFontExistsTF{Avenir Next}{
+  \setmainfont{Avenir Next}
+}{
+  \setmainfont{TeX Gyre Pagella}
+}
+\setlength{\emergencystretch}{2em}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!45!black,
+  citecolor=black
+}
+\captionsetup{font=small,labelfont=bf}
+
+\newcommand{\projectrepo}{https://github.com/pkaramon/lang-ecosystem-evolution}
+
+\title{\textbf{Language Ecosystem Evolution on GitHub}\\
+\large Analysis of programming-language activity from 2016 to 2025}
+\author{Piotr Karamon \and Stanisław Mościcki}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report studies how programming-language ecosystems changed on GitHub between January 2016 and June 2025. The analysis uses a monthly GH Archive sample and compares languages through within-month activity shares rather than raw sampled-day counts. We combine popularity trends, community activity, concentration measures, and dimensionality reduction with UMAP, TriMAP, and PaCMAP. The main result is a visible shift from the older JavaScript, Ruby, PHP, and Java ordering toward stronger TypeScript, Python, Go, Rust, and notebook-based activity, while the overall ecosystem remains concentrated around a small group of leading technologies.
+\end{abstract}
+
+\medskip
+\noindent\textbf{Project repository:} \href{\projectrepo}{\projectrepo}
+
+\section{Dataset and Sampling}
+
+The dataset contains monthly programming-language activity on GitHub from January 2016 to June 2025. It was built from GH Archive events queried through BigQuery. Each row represents one \texttt{language, year, month} combination, with event counts for pushes, pull requests, issues, comments, stars, forks, repository or branch creation, contributors, and active repositories.
+
+The dataset contains 114 monthly samples, 514 canonical language labels, and 58,596 dense language-month rows after completing the language-by-month grid. Only the 15th day of each month is sampled. This keeps the BigQuery scan tractable, but it also means raw event counts are not comparable across months because weekends and weekdays have different activity levels. For that reason, all substantive comparisons in this report use shares, percentages, ranks, or rolling averages.
+
+Repository language is not a top-level GH Archive event field. It was extracted from pull request payloads, specifically from \texttt{payload.pull\_request.base.repo.language}. Reading that JSON payload column is the expensive part of the pipeline, so the BigQuery workflow was designed around the 1 TB free-tier/query ceiling. The language extraction was split into two payload scans, one for 2016--2020 and one for 2021--mid-2025. The resulting repository-language lookup was persisted, and the final event-count query joined against it to count pushes, pull requests, issues, comments, stars, forks, creates, contributors, and active repositories cheaply without scanning the payload column again. The data ends in June 2025 because GitHub removed the embedded language field from event payloads later in 2025.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/sampling_comparability.pdf}
+  \caption{The sampled-day volume is visibly affected by the weekday/weekend calendar effect. The lower panel shows why within-month shares are more appropriate for comparing language trends.}
+  \label{fig:sampling}
+\end{figure}
+
+\section{Scoring and Metrics}
+
+For every metric \(m\), language \(i\), and month \(t\), the analysis computes a within-month share:
+\[
+s_{i,m,t} = \frac{c_{i,m,t}}{\sum_j c_{j,m,t}}.
+\]
+The default popularity score is an equal-weight composite share across the nine activity metrics. We also use two grouped profiles:
+\begin{itemize}
+  \item contribution activity: pushes, pull requests, issues, issue comments, and creates;
+  \item reach and community activity: stars, forks, contributors, and active repositories.
+\end{itemize}
+Most time-series figures use trailing 12-month or 3-month averages to reduce noise from the single-day sampling.
+
+\section{Popularity and Ranking Changes}
+
+The leading ecosystems remain relatively stable, but their ordering changes substantially. JavaScript starts as the dominant ecosystem, while TypeScript grows from a secondary position into the highest-ranked language by the latest 12-month window. Python remains consistently strong and Go rises into the top group. Java, PHP, Ruby, and CSS lose share over the full period.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/composite_trends.pdf}
+  \caption{Long-run composite-share trends for the leading ecosystems. The chart uses trailing 12-month smoothing to avoid over-reading individual sampled days.}
+  \label{fig:trends}
+\end{figure}
+
+The largest long-run gains, measured as the difference between the first and latest 12-month average composite shares, are TypeScript (+14.41 percentage points), Python (+5.36 pp), Rust (+3.00 pp), Go (+2.28 pp), and Jupyter Notebook (+1.34 pp). The largest declines are JavaScript (-12.03 pp), Ruby (-5.00 pp), PHP (-3.92 pp), Java (-3.54 pp), and CSS (-1.71 pp).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/rank_slopegraph.pdf}
+  \caption{Rank change for selected leaders, gainers, and decliners between the first and latest 12-month windows.}
+  \label{fig:rank}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/winners_decliners.pdf}
+  \caption{Largest gainers and decliners by long-run composite-share change.}
+  \label{fig:winners}
+\end{figure}
+
+\section{Community Activity and Concentration}
+
+Popularity is not a single signal. Some languages are especially strong in direct contribution activity, while others over-index in stars, forks, contributors, or active repositories. The recent momentum view shows which ecosystems are both large and still growing in the latest year of data.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/community_momentum.pdf}
+  \caption{Recent momentum among prominent ecosystems. The y-axis compares the latest 12 months with the preceding 12 months.}
+  \label{fig:momentum}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/activity_specialization.pdf}
+  \caption{Activity specialization for selected ecosystems. Values above 1 mean that a metric is stronger than the language's own average activity profile.}
+  \label{fig:specialization}
+\end{figure}
+
+The top ecosystems still account for most of the observed activity. In January 2016, the top 1, top 5, and top 10 labels held 23.1\%, 57.7\%, and 79.1\% of composite activity. In June 2025 the corresponding shares were 17.7\%, 59.6\%, and 78.6\%. This suggests that the leader changed and the top language became less dominant, but the broader top-10 concentration remained very high.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/diversity_concentration.pdf}
+  \caption{Top-k concentration and effective ecosystem diversity. The effective number of ecosystems rises only modestly, so the ecosystem is still dominated by a relatively small leading group.}
+  \label{fig:diversity}
+\end{figure}
+
+\section{Dimensionality Reduction}
+
+The dimensionality-reduction part represents each language as a vector of chronological monthly activity shares. We build three vector profiles: all nine metrics, contribution metrics, and reach/community metrics. For 150 leading labels, this gives 1,026 features for all activity, 570 features for contribution activity, and 456 features for reach/community activity. The vectors are projected with UMAP, TriMAP, and PaCMAP.
+
+The plots should be interpreted through neighborhoods and relative separation, not through absolute axis directions. Across methods, the major languages form a dense high-activity cluster, while many smaller or specialized labels spread into a long tail. The long-tail points are colored by functional group: infra/config, markup/templates, ML/scientific, document/typesetting, web styling, and general-purpose labels. This supports the ranking analysis: a few general-purpose ecosystems dominate the center of activity, while more specialized technologies have distinct temporal profiles.
+
+\begin{table}[H]
+  \centering
+  \caption{Embedding quality diagnostics. Higher values indicate better preservation of local neighborhoods or global distance ordering for this dataset and parameterization.}
+  \label{tab:embedding-scores}
+  \input{tables/embedding_scores.tex}
+\end{table}
+
+UMAP has the best local trustworthiness and k-NN preservation in all three profiles. TriMAP has the best global distance Spearman correlation in all three profiles. PaCMAP is competitive for the reach/community profile but is not the top method in these diagnostics.
+
+\subsection{All Activity Vectors}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/embedding_all_activity_umap.pdf}
+  \caption{UMAP projection for all activity vectors.}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/embedding_all_activity_trimap.pdf}
+  \caption{TriMAP projection for all activity vectors.}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/embedding_all_activity_pacmap.pdf}
+  \caption{PaCMAP projection for all activity vectors.}
+\end{figure}
+
+\subsection{Contribution Vectors}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/embedding_contribution_umap.pdf}
+  \caption{UMAP projection for contribution vectors.}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/embedding_contribution_trimap.pdf}
+  \caption{TriMAP projection for contribution vectors.}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/embedding_contribution_pacmap.pdf}
+  \caption{PaCMAP projection for contribution vectors.}
+\end{figure}
+
+\subsection{Reach and Community Vectors}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/embedding_reach_community_umap.pdf}
+  \caption{UMAP projection for reach/community vectors.}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/embedding_reach_community_trimap.pdf}
+  \caption{TriMAP projection for reach/community vectors.}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/embedding_reach_community_pacmap.pdf}
+  \caption{PaCMAP projection for reach/community vectors.}
+\end{figure}
+
+\section{Limitations}
+
+The main limitation is the sampling design. The dataset is a consistent monthly probe, not a full monthly census. It is therefore suitable for shares and trend comparisons, but not for estimating total GitHub activity. The repository-language lookup also introduces pull-request participation bias: repositories without a language-tagged pull request on a sampled day cannot enter the lookup. Multi-language repositories are collapsed to one dominant GitHub language label. Finally, GitHub language labels include technologies such as HTML, CSS, Shell, Dockerfile, and Jupyter Notebook, so the analysis is best interpreted as an ecosystem analysis rather than a strict ranking of general-purpose programming languages.
+
+\section{Conclusions}
+
+The project shows a clear evolution of GitHub language ecosystems between 2016 and 2025. TypeScript is the most visible long-run winner, Python and Go strengthen, and Rust becomes a meaningful rising ecosystem. JavaScript remains central but loses substantial share, while Ruby, PHP, and Java decline in relative position. Concentration remains high: the top 10 labels still account for almost four fifths of composite activity by the end of the study. The embedding analysis reinforces this picture by separating broad, high-activity ecosystems from the long tail of smaller or more specialized technologies. Overall, the GitHub ecosystem became more diverse at the top, but not radically decentralized.
+
+\end{document}

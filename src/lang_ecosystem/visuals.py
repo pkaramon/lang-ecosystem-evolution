@@ -672,12 +672,17 @@ def ranking_explorer_figure(
         payload = payloads[(initial_score, granularity, scope)]
         for item in payload:
             language = item["name"]
+            has_data = bool(language)
             figure.add_trace(
                 go.Scatter(
                     x=item["x"],
                     y=item["y"],
                     mode="lines+markers+text",
-                    visible=granularity == default_view[0] and scope == default_view[1],
+                    visible=(
+                        has_data
+                        and granularity == default_view[0]
+                        and scope == default_view[1]
+                    ),
                     name=language,
                     text=item["text"],
                     textposition="middle right",
@@ -697,7 +702,7 @@ def ranking_explorer_figure(
                     ),
                 )
             )
-            trace_keys.append((granularity, scope))
+            trace_keys.append((granularity, scope, has_data))
 
     metric_buttons = []
     for score in scores:
@@ -732,9 +737,11 @@ def ranking_explorer_figure(
             "args": [
                 {
                     "visible": [
+                        has_data
+                        and
                         trace_granularity == granularity
                         and trace_scope == scope
-                        for trace_granularity, trace_scope in trace_keys
+                        for trace_granularity, trace_scope, has_data in trace_keys
                     ],
                 },
                 {"yaxis.autorange": "reversed"},

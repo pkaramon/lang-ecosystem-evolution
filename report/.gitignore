@@ -1,0 +1,22 @@
+# Compiled report
+report.pdf
+
+# Generated assets (run export_figures.py from repo root)
+figures/
+tables/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.log
+*.lot
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.xdv
